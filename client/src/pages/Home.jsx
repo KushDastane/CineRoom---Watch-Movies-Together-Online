@@ -23,11 +23,12 @@ const getStoredUserId = () => {
 const Home = () => {
   const [username, setUsername] = useState(sessionStorage.getItem("username") || "");
   const [roomCode, setRoomCode] = useState("");
+  const [formError, setFormError] = useState("");
   const { navigateWithTransition } = useTransition();
 
   const validateUsername = () => {
     if (!username.trim()) {
-      alert("Please enter a username to continue.");
+      setFormError("Enter a username first.");
       return false;
     }
     sessionStorage.setItem("username", username.trim());
@@ -36,6 +37,7 @@ const Home = () => {
   };
 
   const handleCreateRoom = async () => {
+    setFormError("");
     if (!validateUsername()) return;
     try {
       await navigateWithTransition(
@@ -47,18 +49,28 @@ const Home = () => {
       );
     } catch (error) {
       console.error("Error creating room:", error);
-      alert("Failed to create a room. Please try again.");
+      setFormError("Could not create room. Try again.");
     }
   };
 
-  const handleJoinRoom = (code) => {
+  const handleJoinRoom = async (code) => {
+    setFormError("");
     if (!validateUsername()) return;
     const targetCode = code || roomCode;
     if (!targetCode.trim()) {
-      alert("Please enter a room code.");
+      setFormError("Enter a room code.");
       return;
     }
-    navigateWithTransition(`/room/${targetCode.trim()}`);
+
+    const trimmedCode = targetCode.trim();
+
+    try {
+      await api.get(`/room/${trimmedCode}`);
+      navigateWithTransition(`/room/${trimmedCode}`);
+    } catch (error) {
+      console.error("Error joining room:", error);
+      setFormError("Room not found.");
+    }
   };
 
   return (
@@ -103,7 +115,10 @@ const Home = () => {
                   type="text"
                   placeholder="Enter username..."
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => {
+                    setUsername(e.target.value);
+                    setFormError("");
+                  }}
                   className="w-full min-w-0 h-12 px-4 border border-zinc-200 bg-zinc-50/40 rounded-lg font-sans text-sm md:text-base text-zinc-850 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400 focus:bg-white transition-all duration-150"
                 />
               </div>
@@ -135,7 +150,10 @@ const Home = () => {
                     type="text"
                     placeholder="Enter code"
                     value={roomCode}
-                    onChange={(e) => setRoomCode(e.target.value)}
+                    onChange={(e) => {
+                      setRoomCode(e.target.value);
+                      setFormError("");
+                    }}
                     className="w-full min-w-0 flex-1 h-12 px-4 border border-zinc-200 bg-zinc-50/40 rounded-lg font-sans text-sm text-zinc-850 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400 focus:bg-white transition-all duration-150"
                   />
                   <button
@@ -147,6 +165,11 @@ const Home = () => {
                 </div>
               </div>
             </div>
+            {formError && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 font-mono text-[11px] font-bold uppercase tracking-wider text-red-600">
+                {formError}
+              </div>
+            )}
           </section>
         </div>
 

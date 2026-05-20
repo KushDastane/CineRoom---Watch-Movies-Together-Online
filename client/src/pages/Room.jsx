@@ -4,6 +4,7 @@ import { useTransition } from "../context/TransitionContext";
 import socket from "../socket/socket";
 import api from "../services/api";
 import YouTube from "react-youtube";
+import NotFound from "./NotFound";
 import {
   FiMic,
   FiMicOff,
@@ -20,7 +21,6 @@ import {
   FiMessageSquare,
   FiChevronDown,
   FiSettings,
-  FiRefreshCw,
   FiTv
 } from "react-icons/fi";
 import { FaCrown } from "react-icons/fa";
@@ -53,6 +53,74 @@ const ParticipantVideo = ({ stream, isMuted = false }) => {
     />
   );
 };
+
+const RoomWarmupModal = () => (
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md px-4">
+    <div className="relative w-full max-w-xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/50">
+      <div className="relative min-h-[360px] px-6 py-7 sm:px-8">
+        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-indigo-600/20 to-transparent" />
+        <div className="cine-spotlight cine-spotlight-left" />
+        <div className="cine-spotlight cine-spotlight-right" />
+
+        <div className="relative z-10 flex flex-col items-center text-center">
+          <div className="mb-5 flex h-36 w-full items-end justify-center gap-5">
+            <div className="cine-actor cine-actor-left">
+              <div className="cine-actor-head">
+                <span className="cine-actor-hair" />
+                <span className="cine-actor-eye cine-actor-eye-left" />
+                <span className="cine-actor-eye cine-actor-eye-right" />
+                <span className="cine-actor-smile" />
+              </div>
+              <div className="cine-actor-body">
+                <span className="cine-bowtie" />
+              </div>
+            </div>
+
+            <div className="cine-snack-stage">
+              <div className="cine-popcorn">
+                <span />
+                <span />
+                <span />
+                <span />
+              </div>
+              <div className="cine-drink">
+                <span />
+              </div>
+            </div>
+
+            <div className="cine-actor cine-actor-right">
+              <div className="cine-actor-head">
+                <span className="cine-actor-hair" />
+                <span className="cine-actor-eye cine-actor-eye-left" />
+                <span className="cine-actor-eye cine-actor-eye-right" />
+                <span className="cine-actor-smile" />
+              </div>
+              <div className="cine-actor-body">
+                <span className="cine-bowtie" />
+              </div>
+            </div>
+          </div>
+
+          <span className="mb-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-300">
+            Warming up the room
+          </span>
+          <h1 className="text-2xl font-black tracking-normal text-white sm:text-3xl">
+            Grab your popcorn and drinks
+          </h1>
+          <p className="mt-3 max-w-md text-sm leading-6 text-zinc-400">
+            The server is getting ready to stream your audio & video!
+          </p>
+
+          <div className="mt-6 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+            <span className="cine-dot" />
+            <span>Coming up</span>
+            <span className="cine-dot cine-dot-delay" />
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 const Room = () => {
   const { roomId } = useParams();
@@ -88,6 +156,7 @@ const Room = () => {
   isHostRef.current = isHost;
 
   const [loading, setLoading] = useState(true);
+  const [showRoomWarmup, setShowRoomWarmup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMediaManager, setShowMediaManager] = useState(false);
   const [floatingReactions, setFloatingReactions] = useState([]);
@@ -107,6 +176,19 @@ const Room = () => {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [room?.messages]);
+
+  useEffect(() => {
+    if (!loading) {
+      setShowRoomWarmup(false);
+      return undefined;
+    }
+
+    const timer = setTimeout(() => {
+      setShowRoomWarmup(true);
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [loading]);
 
   const handleLeaveRoom = () => {
     setProjectorOff(true);
@@ -611,27 +693,15 @@ const Room = () => {
   }, [roomId]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center font-mono text-zinc-400 text-xs">
-        <FiRefreshCw className="animate-spin text-brand-blue w-6 h-6 mb-3" />
-        <span>LOADING SCREEN CONFIGURATION...</span>
-      </div>
+    return showRoomWarmup ? (
+      <RoomWarmupModal />
+    ) : (
+      <div className="min-h-screen bg-zinc-950" />
     );
   }
 
   if (!room) {
-    return (
-      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center font-mono text-zinc-500 text-xs gap-4">
-        <span className="text-red-650 font-bold text-sm">ROOM NOT FOUND</span>
-        <span>The requested room session does not exist or has ended.</span>
-        <button
-          onClick={() => navigateWithTransition("/")}
-          className="border border-zinc-300 hover:border-zinc-900 bg-white px-4 py-2 rounded text-zinc-800 cursor-pointer font-bold transition-colors"
-        >
-          RETURN TO LOBBY
-        </button>
-      </div>
-    );
+    return <NotFound />;
   }
 
   const handlePlay = () => {
@@ -798,14 +868,14 @@ const Room = () => {
                 </div>
               ) : isHost ? (
                 /* Empty state screen with direct Host controls */
-                <div className="w-full h-full flex items-center justify-center p-3 sm:p-6 bg-zinc-900 select-none">
-                  <div className="max-w-md w-full flex flex-row items-center justify-center gap-2 sm:gap-6 font-mono">
+                <div className="w-full h-full flex items-center justify-center p-3 sm:p-6 lg:p-10 bg-zinc-900 select-none">
+                  <div className="max-w-md lg:max-w-3xl w-full flex flex-row items-center justify-center gap-2 sm:gap-6 lg:gap-10 font-mono">
                     {/* Local file upload block */}
-                    <div className="flex flex-col gap-1.5 sm:gap-2 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 rounded-lg w-[115px] sm:w-[180px]">
+                    <div className="flex flex-col gap-1.5 sm:gap-2 lg:gap-4 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 lg:p-6 rounded-lg w-[115px] sm:w-[180px] lg:w-[260px]">
 
-                      <label className="border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900 hover:bg-zinc-850 p-2 sm:p-4 rounded flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors h-[50px] sm:h-[76px]">
-                        <FiUploadCloud className="text-zinc-500 w-4 h-4 sm:w-5 sm:h-5" />
-                        <span className="text-[8px] sm:text-[9px] font-sans font-bold text-zinc-300 text-center truncate w-full">Choose File</span>
+                      <label className="border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900 hover:bg-zinc-850 p-2 sm:p-4 lg:p-6 rounded flex flex-col items-center justify-center gap-1 lg:gap-3 cursor-pointer transition-colors h-[50px] sm:h-[76px] lg:h-[145px]">
+                        <FiUploadCloud className="text-zinc-500 w-4 h-4 sm:w-5 sm:h-5 lg:w-8 lg:h-8" />
+                        <span className="text-[8px] sm:text-[9px] lg:text-sm font-sans font-bold text-zinc-300 text-center truncate w-full">Choose File</span>
                         <input
                           type="file"
                           accept="video/mp4"
@@ -815,30 +885,30 @@ const Room = () => {
                       </label>
                     </div>
 
-                    <span className="text-zinc-500 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider select-none">OR</span>
+                    <span className="text-zinc-500 text-[8px] sm:text-[10px] lg:text-sm font-bold uppercase tracking-wider select-none">OR</span>
 
                     {/* YouTube feed block */}
-                    <div className="flex flex-col gap-1.5 sm:gap-2 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 rounded-lg w-[115px] sm:w-[180px]">
+                    <div className="flex flex-col gap-1.5 sm:gap-2 lg:gap-4 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 lg:p-6 rounded-lg w-[115px] sm:w-[180px] lg:w-[260px]">
 
-                      <div className="flex flex-col gap-1.5 sm:gap-2 justify-center h-[50px] sm:h-[76px]">
+                      <div className="flex flex-col gap-1.5 sm:gap-2 lg:gap-4 justify-center h-[50px] sm:h-[76px] lg:h-[145px]">
                         <input
                           type="text"
                           placeholder="YouTube URL..."
                           value={youtubeUrl}
                           onChange={(e) => setYoutubeUrl(e.target.value)}
-                          className="border border-zinc-800 bg-zinc-900 px-1 py-0.5 sm:px-2 sm:py-1 rounded font-sans text-[8px] sm:text-[10px] text-zinc-100 placeholder:text-zinc-650 focus:outline-none focus:border-zinc-700 transition-all w-full text-center"
+                          className="border border-zinc-800 bg-zinc-900 px-1 py-0.5 sm:px-2 sm:py-1 lg:px-4 lg:py-3 rounded font-sans text-[8px] sm:text-[10px] lg:text-sm text-zinc-100 placeholder:text-zinc-650 focus:outline-none focus:border-zinc-700 transition-all w-full text-center"
                         />
                         <button
                           onClick={handleSetYoutubeVideo}
                           className="
                             w-full
-                            h-6 sm:h-10
+                            h-6 sm:h-10 lg:h-12
                             bg-white
                             hover:bg-zinc-100
                             active:scale-[0.98]
                             text-black
                             font-mono
-                            text-[8px] sm:text-[11px]
+                            text-[8px] sm:text-[11px] lg:text-sm
                             font-semibold
                             tracking-[0.1em] sm:tracking-[0.18em]
                             rounded-md
@@ -848,7 +918,7 @@ const Room = () => {
                             cursor-pointer
                           "
                         >
-                          <FiLink className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          <FiLink className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-4 lg:h-4" />
                           LOAD
                         </button>
                       </div>
