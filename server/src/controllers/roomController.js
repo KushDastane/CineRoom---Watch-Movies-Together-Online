@@ -1,7 +1,7 @@
 const roomService = require("../services/roomService.js");
 
-const createRoom = (req, res) => {
-    const room = roomService.createRoom();
+const createRoom = async (req, res) => {
+    const room = await roomService.createRoom();
 
     res.json({
         success: true,
@@ -9,9 +9,9 @@ const createRoom = (req, res) => {
     });
 };
 
-const getRoom = (req,res)=>{
+const getRoom = async (req,res)=>{
     const roomId = req.params.roomId;
-    const room = roomService.getRoom(roomId);
+    const room = await roomService.getRoom(roomId);
 
     if(!room){
         return res.status(404).json({
@@ -25,9 +25,9 @@ const getRoom = (req,res)=>{
     });
 };
 
-const joinRoom = (req,res)=>{
+const joinRoom = async (req,res)=>{
     const roomId = req.params.roomId;
-    const {username} = req.body;
+    const {username, userId} = req.body;
 
     if(!username){
         return res.status(400).json({
@@ -36,7 +36,7 @@ const joinRoom = (req,res)=>{
         });
     }
 
-    const result = roomService.joinRoom(roomId, username);
+    const result = await roomService.addUserToRoom(roomId, username, null, userId);
 
     if(!result){
         return res.status(404).json({
@@ -50,8 +50,8 @@ const joinRoom = (req,res)=>{
         user:result.user,
     })
 }
-const getAllRooms = (req, res) => {
-    const activeRooms = roomService.getAllRooms();
+const getAllRooms = async (req, res) => {
+    const activeRooms = await roomService.getAllRooms();
     res.json({
         success: true,
         rooms: activeRooms,

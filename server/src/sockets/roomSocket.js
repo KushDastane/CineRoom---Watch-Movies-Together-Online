@@ -1,9 +1,9 @@
 const roomService = require("../services/roomService.js");
 
 const registerRoomSockets = (io, socket) => {
-    socket.on("JOIN_ROOM", ({ roomId, username }) => {
+    socket.on("JOIN_ROOM", async ({ roomId, username, userId }) => {
 
-        const result = roomService.addUserToRoom(roomId, username, socket.id);
+        const result = await roomService.addUserToRoom(roomId, username, socket.id, userId);
 
         if (!result) {
             return;
@@ -23,7 +23,12 @@ const registerRoomSockets = (io, socket) => {
     socket.on(
         "PLAY_VIDEO",
 
-        ({ roomId, currentTime }) => {
+        async ({ roomId, currentTime }) => {
+
+            await roomService.updatePlaybackState(roomId, {
+                isPlaying: true,
+                currentTime,
+            });
 
             socket.to(roomId).emit(
                 "PLAY_VIDEO",
@@ -36,7 +41,12 @@ const registerRoomSockets = (io, socket) => {
     socket.on(
         "PAUSE_VIDEO",
 
-        ({ roomId, currentTime }) => {
+        async ({ roomId, currentTime }) => {
+
+            await roomService.updatePlaybackState(roomId, {
+                isPlaying: false,
+                currentTime,
+            });
 
             socket.to(roomId).emit(
                 "PAUSE_VIDEO",
@@ -46,25 +56,28 @@ const registerRoomSockets = (io, socket) => {
         }
     );
 
-    socket.on("SEEK_VIDEO", ({ roomId, currentTime }) => {
+    socket.on("SEEK_VIDEO", async ({ roomId, currentTime }) => {
+        await roomService.updatePlaybackState(roomId, { currentTime });
         socket.to(roomId).emit("SEEK_VIDEO", { currentTime });
     })
 
     socket.on(
         "SET_VIDEO",
 
-        ({ roomId, videoUrl }) => {
+        async ({ roomId, videoUrl }) => {
 
             const updatedRoom =
-                roomService.setRoomVideo(
+                await roomService.setRoomVideo(
                     roomId,
                     videoUrl
                 );
 
-            io.to(roomId).emit(
-                "ROOM_UPDATED",
-                updatedRoom
-            );
+            if (updatedRoom) {
+                io.to(roomId).emit(
+                    "ROOM_UPDATED",
+                    updatedRoom
+                );
+            }
         }
     );
 
@@ -126,46 +139,50 @@ const registerRoomSockets = (io, socket) => {
 
     socket.on(
         "SEND_MESSAGE",
-        ({ roomId, message }) => {
+        async ({ roomId, message }) => {
             const updatedRoom
-                = roomService.addMessageToRoom(
+                = await roomService.addMessageToRoom(
                     roomId,
                     message
                 );
-            io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+            if (updatedRoom) {
+                io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+            }
         }
     )
 
     socket.on(
         "SET_YOUTUBE_VIDEO",
 
-        ({
+        async ({
             roomId,
             youtubeVideoId
         }) => {
 
             const updatedRoom =
-                roomService.setYoutubeVideo(
+                await roomService.setYoutubeVideo(
                     roomId,
                     youtubeVideoId
                 );
 
-            io.to(roomId).emit(
-                "ROOM_UPDATED",
-                updatedRoom
-            );
+            if (updatedRoom) {
+                io.to(roomId).emit(
+                    "ROOM_UPDATED",
+                    updatedRoom
+                );
+            }
         }
     );
 
-    socket.on("TOGGLE_MUTE", ({ roomId, isMuted }) => {
-        const updatedRoom = roomService.setUserMuteState(roomId, socket.id, isMuted);
+    socket.on("TOGGLE_MUTE", async ({ roomId, isMuted }) => {
+        const updatedRoom = await roomService.setUserMuteState(roomId, socket.id, isMuted);
         if (updatedRoom) {
             io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
         }
     });
 
-    socket.on("TOGGLE_CAMERA", ({ roomId, isCameraOn }) => {
-        const updatedRoom = roomService.setUserCameraState(roomId, socket.id, isCameraOn);
+    socket.on("TOGGLE_CAMERA", async ({ roomId, isCameraOn }) => {
+        const updatedRoom = await roomService.setUserCameraState(roomId, socket.id, isCameraOn);
         if (updatedRoom) {
             io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
         }
@@ -175,7 +192,7 @@ const registerRoomSockets = (io, socket) => {
         io.to(roomId).emit("REACTION_RECEIVED", { emoji, username, id: Date.now() });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
         console.log("Disconnected:", socket.id);
 
         if (!socket.roomId) {
@@ -183,12 +200,14 @@ const registerRoomSockets = (io, socket) => {
         }
 
         const updatedRoom =
-            roomService.removeUserFromRoom(
+            await roomService.removeUserFromRoom(
                 socket.roomId,
                 socket.id
             )
 
-        io.to(socket.roomId).emit("ROOM_UPDATED", updatedRoom);
+        if (updatedRoom) {
+            io.to(socket.roomId).emit("ROOM_UPDATED", updatedRoom);
+        }
     })
 
 

@@ -11,6 +11,15 @@ import {
   FiUser
 } from "react-icons/fi";
 
+const getStoredUserId = () => {
+  const existingUserId = localStorage.getItem("cineroomUserId");
+  if (existingUserId) return existingUserId;
+
+  const userId = crypto.randomUUID();
+  localStorage.setItem("cineroomUserId", userId);
+  return userId;
+};
+
 const Home = () => {
   const [username, setUsername] = useState(sessionStorage.getItem("username") || "");
   const [roomCode, setRoomCode] = useState("");
@@ -22,6 +31,7 @@ const Home = () => {
       return false;
     }
     sessionStorage.setItem("username", username.trim());
+    getStoredUserId();
     return true;
   };
 

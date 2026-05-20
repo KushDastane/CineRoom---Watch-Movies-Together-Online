@@ -1,11 +1,26 @@
-const rooms = new Map();
+const Room = require("../models/Room.js");
 
-const createRoom = () => {
-    const roomId = Math.random().toString(36).substring(2, 8);
+const touchRoom = (room) => {
+    room.lastActiveAt = new Date();
+};
 
-    const room = {
-        youtubeVideoId: null,
+const toClient = (room) => {
+    if (!room) return null;
+    return room.toClient ? room.toClient() : room;
+};
+
+const generateRoomId = () => Math.random().toString(36).substring(2, 8);
+
+const createRoom = async () => {
+    let roomId = generateRoomId();
+
+    while (await Room.exists({ roomId })) {
+        roomId = generateRoomId();
+    }
+
+    const room = await Room.create({
         roomId,
+        youtubeVideoId: null,
         users: [],
         messages: [],
         createdAt: Date.now(),
@@ -13,144 +28,176 @@ const createRoom = () => {
         playbackState: {
             isPlaying: false,
             currentTime: 0,
+            updatedAt: Date.now(),
         },
-    };
+        lastActiveAt: new Date(),
+    });
 
-    rooms.set(roomId, room);
-    return room;
+    return toClient(room);
 };
 
-const setYoutubeVideo = (
-    roomId,
-    youtubeVideoId
-) => {
+const getRoom = async (roomId) => {
+    const room = await Room.findOne({ roomId });
+    return toClient(room);
+};
 
-    const room =
-        rooms.get(roomId);
+const setYoutubeVideo = async (roomId, youtubeVideoId) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
 
-    if (!room) {
-        return null;
-    }
-
-    room.youtubeVideoId =
-        youtubeVideoId;
-
+    room.youtubeVideoId = youtubeVideoId;
     room.videoUrl = null;
+    touchRoom(room);
+    await room.save();
 
-    return room;
+    return toClient(room);
 };
 
-const getRoom = (roomId) => {
-    return rooms.get(roomId);
-};
+const addUserToRoom = async (roomId, username, socketId, userId) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
 
-const addUserToRoom = (roomId, username, socketId) => {
-    const room = rooms.get(roomId);
+    const stableUserId = userId || socketId;
 
-    if (!room) {
-        return null;
-    }
+    let user = room.users.find((u) => u.userId === stableUserId);
 
-    // Prevent duplicates by checking if socketId already exists
-    let existingUserBySocket = room.users.find((u) => u.socketId === socketId);
-    if (existingUserBySocket) {
-        existingUserBySocket.username = username;
-        return { room, user: existingUserBySocket };
-    }
-
-    // Prevent duplicates by checking if username already exists
-    let existingUserByUsername = room.users.find((u) => u.username === username);
-    if (existingUserByUsername) {
-        existingUserByUsername.socketId = socketId;
-        return { room, user: existingUserByUsername };
-    }
-
-    const user = {
-        socketId,
-        id: Math.random().toString(36).substring(2, 9),
-        username,
-        joinedAt: Date.now(),
-        isHost: room.users.length === 0, //first user = host
-        isMuted: true,
-        isCameraOn: false,
-    };
-
-    room.users.push(user);
-    return { room, user };
-};
-
-const removeUserFromRoom = (roomId, socketId) => {
-    const room = rooms.get(roomId);
-
-    if (!room) {
-        return null;
-    }
-
-    room.users = room.users.filter(
-        (user) => user.socketId !== socketId //keep everyone except leaving user & replace old array with filtered array.
-    );
-
-    if (room.users.length > 0) {
-        const hasHost = room.users.some(
-            (user) => user.isHost
-        );
-
-        if (!hasHost) {
-            room.users[0].isHost = true;
+    if (user) {
+        user.username = username;
+        user.socketId = socketId;
+    } else {
+        user = room.users.find((u) => u.socketId === socketId);
+        if (user) {
+            user.userId = stableUserId;
+            user.username = username;
         }
     }
 
-    if (room.users.length === 0) {
-        rooms.delete(roomId);
-        return null;
+    if (!user) {
+        user = {
+            userId: stableUserId,
+            socketId,
+            username,
+            joinedAt: Date.now(),
+            isHost: room.users.length === 0,
+            isMuted: true,
+            isCameraOn: false,
+        };
+        room.users.push(user);
     }
-    return room;
-}
 
-const setRoomVideo = (roomId, videoUrl) => {
-    const room = rooms.get(roomId);
-    if (!room) {
-        return null;
+    if (!room.users.some((u) => u.isHost)) {
+        room.users[0].isHost = true;
     }
-    room.videoUrl = videoUrl;
-    return room;
+
+    touchRoom(room);
+    await room.save();
+
+    return { room: toClient(room), user };
 };
 
-const addMessageToRoom = (
-    roomId,
-    message,
-) => {
-    const room = rooms.get(roomId);
-    if (!room) {
-        return null;
-    }
-    room.messages.push(message);
-    return room;
-}
-const getAllRooms = () => {
-    return Array.from(rooms.values());
-};
-
-const setUserMuteState = (roomId, socketId, isMuted) => {
-    const room = rooms.get(roomId);
+const removeUserFromRoom = async (roomId, socketId) => {
+    const room = await Room.findOne({ roomId });
     if (!room) return null;
+
+    room.users = room.users.filter((user) => user.socketId !== socketId);
+
+    if (room.users.length > 0 && !room.users.some((user) => user.isHost)) {
+        room.users[0].isHost = true;
+    }
+
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
+};
+
+const setRoomVideo = async (roomId, videoUrl) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
+
+    room.videoUrl = videoUrl;
+    room.youtubeVideoId = null;
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
+};
+
+const addMessageToRoom = async (roomId, message) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
+
+    room.messages.push(message);
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
+};
+
+const getAllRooms = async () => {
+    const rooms = await Room.find({}).sort({ lastActiveAt: -1 });
+    return rooms.map(toClient);
+};
+
+const setUserMuteState = async (roomId, socketId, isMuted) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
+
     room.users.forEach((u) => {
         if (u.socketId === socketId) {
             u.isMuted = isMuted;
         }
     });
-    return room;
+
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
 };
 
-const setUserCameraState = (roomId, socketId, isCameraOn) => {
-    const room = rooms.get(roomId);
+const setUserCameraState = async (roomId, socketId, isCameraOn) => {
+    const room = await Room.findOne({ roomId });
     if (!room) return null;
+
     room.users.forEach((u) => {
         if (u.socketId === socketId) {
             u.isCameraOn = isCameraOn;
         }
     });
-    return room;
+
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
 };
 
-module.exports = { createRoom, getRoom, addUserToRoom, removeUserFromRoom, setRoomVideo, addMessageToRoom, setYoutubeVideo, getAllRooms, setUserMuteState, setUserCameraState };
+const updatePlaybackState = async (roomId, playbackState) => {
+    const room = await Room.findOne({ roomId });
+    if (!room) return null;
+
+    if (typeof playbackState.isPlaying === "boolean") {
+        room.playbackState.isPlaying = playbackState.isPlaying;
+    }
+    if (typeof playbackState.currentTime === "number") {
+        room.playbackState.currentTime = playbackState.currentTime;
+    }
+    room.playbackState.updatedAt = Date.now();
+    touchRoom(room);
+    await room.save();
+
+    return toClient(room);
+};
+
+module.exports = {
+    createRoom,
+    getRoom,
+    addUserToRoom,
+    removeUserFromRoom,
+    setRoomVideo,
+    addMessageToRoom,
+    setYoutubeVideo,
+    getAllRooms,
+    setUserMuteState,
+    setUserCameraState,
+    updatePlaybackState,
+};

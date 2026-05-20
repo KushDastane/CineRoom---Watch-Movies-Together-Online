@@ -25,6 +25,15 @@ import {
 } from "react-icons/fi";
 import { FaCrown } from "react-icons/fa";
 
+const getStoredUserId = () => {
+  const existingUserId = localStorage.getItem("cineroomUserId");
+  if (existingUserId) return existingUserId;
+
+  const userId = crypto.randomUUID();
+  localStorage.setItem("cineroomUserId", userId);
+  return userId;
+};
+
 const ParticipantVideo = ({ stream, isMuted = false }) => {
   const videoRef = useRef(null);
 
@@ -55,6 +64,7 @@ const Room = () => {
   const [room, setRoom] = useState(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const username = sessionStorage.getItem("username");
+  const userId = getStoredUserId();
   const localStream = useRef(null);
   const rawStream = useRef(null);
   const peerConnections = useRef({});
@@ -68,7 +78,7 @@ const Room = () => {
   isMutedRef.current = isMuted;
   const gainNodeRef = useRef(null);
 
-  const currentUser = room?.users.find((user) => user.username === username);
+  const currentUser = room?.users.find((user) => user.userId === userId || user.username === username);
   const [message, setMessage] = useState("");
   const isHost = currentUser?.isHost;
 
@@ -395,6 +405,7 @@ const Room = () => {
       roomId,
       message: {
         id: Date.now(),
+        userId,
         username,
         text: message,
         createdAt: Date.now(),
@@ -415,7 +426,8 @@ const Room = () => {
       await initializeVoice();
       socket.emit("JOIN_ROOM", {
         roomId,
-        username
+        username,
+        userId
       });
     };
 
