@@ -3,7 +3,7 @@ const roomService = require("../services/roomService.js");
 const registerRoomSockets = (io, socket) => {
     socket.on("JOIN_ROOM", ({ roomId, username }) => {
 
-        const result = roomService.addUserToRoom(roomId, username);
+        const result = roomService.addUserToRoom(roomId, username, socket.id);
 
         if (!result) {
             return;
@@ -13,7 +13,7 @@ const registerRoomSockets = (io, socket) => {
 
         socket.join(roomId);
         socket.roomId = roomId;
-        socket.userId = user.id;
+        socket.socketId = socket.id;
 
         console.log(`${username} joined room ${roomId}`);
 
@@ -52,30 +52,65 @@ const registerRoomSockets = (io, socket) => {
 
     socket.on(
         "WEBRTC_OFFER",
-        ({ roomId, offer }) => {
-            socket.to(roomId).emit("WEBRTC_OFFER", offer);
+
+        ({ targetSocketId, offer }) => {
+
+            io.to(targetSocketId).emit(
+
+                "WEBRTC_OFFER",
+
+                {
+                    offer,
+
+                    senderSocketId:
+                        socket.id,
+                }
+            );
         }
     );
 
     socket.on(
         "WEBRTC_ANSWER",
-        ({ roomId, answer }) => {
-            socket.to(roomId).emit("WEBRTC_ANSWER", answer);
+
+        ({ targetSocketId, answer }) => {
+
+            io.to(targetSocketId).emit(
+                "WEBRTC_ANSWER",
+
+                {
+                    answer,
+
+                    senderSocketId:
+                        socket.id,
+                }
+            );
         }
     );
 
     socket.on(
         "ICE_CANDIDATE",
-        ({ roomId, candidate }) => {
-            socket.to(roomId).emit("ICE_CANDIDATE", candidate);
+
+        ({ targetSocketId, candidate }) => {
+
+            io.to(targetSocketId).emit(
+
+                "ICE_CANDIDATE",
+
+                {
+                    candidate,
+
+                    senderSocketId:
+                        socket.id,
+                }
+            );
         }
-    )
+    );
 
     socket.on(
         "SEND_MESSAGE",
-        ({roomId, message})=>{
+        ({ roomId, message }) => {
             const updatedRoom
-                =roomService.addMessageToRoom(
+                = roomService.addMessageToRoom(
                     roomId,
                     message
                 );
@@ -86,31 +121,20 @@ const registerRoomSockets = (io, socket) => {
     socket.on("disconnect", () => {
         console.log("Disconnected:", socket.id);
 
-        if (!socket.roomId || !socket.userId) {
+        if (!socket.roomId) {
             return;
         }
 
         const updatedRoom =
             roomService.removeUserFromRoom(
                 socket.roomId,
-                socket.userId
-            );
+                socket.id
+            )
 
         io.to(socket.roomId).emit("ROOM_UPDATED", updatedRoom);
     })
 
 
-}
-
-const startWebRTC = async () => {
-    const pc = createPeerConnection();
-    const offer = await pc.createOffer();
-
-    await pc.setLocalDescription(offer);
-    socket.emit("WEBRTC_OFFER", {
-        roomId,
-        offer,
-    })
 }
 
 module.exports = registerRoomSockets;

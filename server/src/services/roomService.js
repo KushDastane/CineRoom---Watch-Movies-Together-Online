@@ -23,7 +23,7 @@ const getRoom = (roomId) => {
     return rooms.get(roomId);
 };
 
-const addUserToRoom = (roomId, username) => {
+const addUserToRoom = (roomId, username, socketId) => {
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -31,6 +31,7 @@ const addUserToRoom = (roomId, username) => {
     }
 
     const user = {
+        socketId,
         id: Math.random().toString(36).substring(2, 9),
         username,
         joinedAt: Date.now(),
@@ -41,7 +42,7 @@ const addUserToRoom = (roomId, username) => {
     return { room, user };
 };
 
-const removeUserFromRoom = (roomId, userId) => {
+const removeUserFromRoom = (roomId, socketId) => {
     const room = rooms.get(roomId);
 
     if (!room) {
@@ -49,7 +50,7 @@ const removeUserFromRoom = (roomId, userId) => {
     }
 
     room.users = room.users.filter(
-        (user) => user.id !== userId //keep everyone except leaving user & replace old array with filtered array.
+        (user) => user.socketId !== socketId //keep everyone except leaving user & replace old array with filtered array.
     );
 
     if (room.users.length > 0) {
