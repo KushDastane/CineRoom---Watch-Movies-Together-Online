@@ -181,6 +181,13 @@ const registerRoomSockets = (io, socket) => {
             youtubeVideoId
         }) => {
 
+            if (!/^[a-zA-Z0-9_-]{11}$/.test(youtubeVideoId || "")) {
+                socket.emit("YOUTUBE_VIDEO_ERROR", {
+                    message: "Invalid YouTube video URL.",
+                });
+                return;
+            }
+
             const updatedRoom =
                 await roomService.setYoutubeVideo(
                     roomId,

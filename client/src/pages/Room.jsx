@@ -39,20 +39,24 @@ const extractYoutubeVideoId = (url) => {
     const parsedUrl = new URL(url.trim());
     const hostname = parsedUrl.hostname.replace(/^www\./, "");
 
+    let videoId = null;
+
     if (hostname === "youtu.be") {
-      return parsedUrl.pathname.split("/").filter(Boolean)[0] || null;
+      videoId = parsedUrl.pathname.split("/").filter(Boolean)[0] || null;
     }
 
     if (hostname === "youtube.com" || hostname === "m.youtube.com" || hostname === "music.youtube.com") {
       if (parsedUrl.pathname === "/watch") {
-        return parsedUrl.searchParams.get("v");
+        videoId = parsedUrl.searchParams.get("v");
       }
 
       const parts = parsedUrl.pathname.split("/").filter(Boolean);
       if (["embed", "shorts", "live"].includes(parts[0])) {
-        return parts[1] || null;
+        videoId = parts[1] || null;
       }
     }
+
+    return /^[a-zA-Z0-9_-]{11}$/.test(videoId || "") ? videoId : null;
   } catch {
     return null;
   }
@@ -185,6 +189,12 @@ const Room = () => {
   const [showRoomWarmup, setShowRoomWarmup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMediaManager, setShowMediaManager] = useState(false);
+  const [uploadState, setUploadState] = useState({
+    isUploading: false,
+    progress: 0,
+    fileName: "",
+    error: "",
+  });
   const [floatingReactions, setFloatingReactions] = useState([]);
   const [theatreMode, setTheatreMode] = useState(false);
   const [projectorOff, setProjectorOff] = useState(false);
@@ -779,18 +789,80 @@ const Room = () => {
     const file = e.target.files[0];
     if (!file) return;
     try {
+      setUploadState({
+        isUploading: true,
+        progress: 0,
+        fileName: file.name,
+        error: "",
+      });
       const formData = new FormData();
       formData.append("video", file);
-      const response = await api.post("/upload/video", formData);
+      const response = await api.post("/upload/video", formData, {
+        onUploadProgress: (progressEvent) => {
+          if (!progressEvent.total) return;
+          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          setUploadState((prev) => ({
+            ...prev,
+            progress: Math.min(progress, 99),
+          }));
+        },
+      });
+
+      setUploadState((prev) => ({
+        ...prev,
+        progress: 100,
+      }));
 
       socket.emit("SET_VIDEO", {
         roomId,
         videoUrl: response.data.videoUrl,
       });
+      e.target.value = "";
+      setTimeout(() => {
+        setUploadState({
+          isUploading: false,
+          progress: 0,
+          fileName: "",
+          error: "",
+        });
+      }, 700);
     } catch (error) {
       console.error("Upload error:", error);
+      setUploadState({
+        isUploading: false,
+        progress: 0,
+        fileName: "",
+        error: "Upload failed. Try a smaller video or check your connection.",
+      });
     }
   };
+
+  const uploadFeedback = (compact = false) => (
+    <>
+      {uploadState.isUploading && (
+        <div className={`mt-3 w-full rounded border border-blue-500/30 bg-blue-500/10 ${compact ? "p-2" : "p-3"}`}>
+          <div className="mb-2 flex items-center justify-between gap-3 font-mono text-[9px] font-bold uppercase tracking-wider text-blue-200">
+            <span className="truncate">{uploadState.fileName || "Uploading video"}</span>
+            <span>{uploadState.progress}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all duration-300"
+              style={{ width: `${uploadState.progress}%` }}
+            />
+          </div>
+          <p className="mt-2 font-mono text-[9px] uppercase tracking-wider text-zinc-400">
+            Uploading to the projector...
+          </p>
+        </div>
+      )}
+      {uploadState.error && (
+        <div className={`mt-3 rounded border border-red-500/30 bg-red-500/10 ${compact ? "p-2" : "p-3"} font-mono text-[9px] font-bold uppercase tracking-wider text-red-300`}>
+          {uploadState.error}
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className={`min-h-screen flex flex-col transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-950 text-zinc-200" : "bg-zinc-50 text-zinc-900"
@@ -874,7 +946,7 @@ const Room = () => {
             {/* Render video content with Projector Shutdown effect */}
             <div className={`w-full h-full flex items-center justify-center transition-all ${projectorOff ? "projector-shutdown-active" : ""
               }`}>
-              {room.youtubeVideoId ? (
+              {room.youtubeVideoId && /^[a-zA-Z0-9_-]{11}$/.test(room.youtubeVideoId) ? (
                 <div className="w-full h-full">
                   <YouTube
                     videoId={room.youtubeVideoId}
@@ -927,6 +999,7 @@ const Room = () => {
                           className="hidden"
                         />
                       </label>
+                      {uploadFeedback(true)}
                     </div>
 
                     <span className="text-zinc-500 text-[8px] sm:text-[10px] lg:text-sm font-bold uppercase tracking-wider select-none">OR</span>
@@ -1066,6 +1139,7 @@ const Room = () => {
                         className="hidden"
                       />
                     </label>
+                    {uploadFeedback()}
                   </div>
 
                   {/* Divider line for MD screen */}
