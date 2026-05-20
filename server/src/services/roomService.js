@@ -4,6 +4,7 @@ const createRoom = () => {
     const roomId = Math.random().toString(36).substring(2, 8);
 
     const room = {
+        youtubeVideoId: null,
         roomId,
         users: [],
         messages: [],
@@ -19,6 +20,26 @@ const createRoom = () => {
     return room;
 };
 
+const setYoutubeVideo = (
+    roomId,
+    youtubeVideoId
+) => {
+
+    const room =
+        rooms.get(roomId);
+
+    if (!room) {
+        return null;
+    }
+
+    room.youtubeVideoId =
+        youtubeVideoId;
+
+    room.videoUrl = null;
+
+    return room;
+};
+
 const getRoom = (roomId) => {
     return rooms.get(roomId);
 };
@@ -30,12 +51,28 @@ const addUserToRoom = (roomId, username, socketId) => {
         return null;
     }
 
+    // Prevent duplicates by checking if socketId already exists
+    let existingUserBySocket = room.users.find((u) => u.socketId === socketId);
+    if (existingUserBySocket) {
+        existingUserBySocket.username = username;
+        return { room, user: existingUserBySocket };
+    }
+
+    // Prevent duplicates by checking if username already exists
+    let existingUserByUsername = room.users.find((u) => u.username === username);
+    if (existingUserByUsername) {
+        existingUserByUsername.socketId = socketId;
+        return { room, user: existingUserByUsername };
+    }
+
     const user = {
         socketId,
         id: Math.random().toString(36).substring(2, 9),
         username,
         joinedAt: Date.now(),
         isHost: room.users.length === 0, //first user = host
+        isMuted: true,
+        isCameraOn: false,
     };
 
     room.users.push(user);
@@ -82,13 +119,38 @@ const setRoomVideo = (roomId, videoUrl) => {
 const addMessageToRoom = (
     roomId,
     message,
-)=>{
+) => {
     const room = rooms.get(roomId);
-    if(!room){
+    if (!room) {
         return null;
     }
     room.messages.push(message);
     return room;
 }
+const getAllRooms = () => {
+    return Array.from(rooms.values());
+};
 
-module.exports = { createRoom, getRoom, addUserToRoom, removeUserFromRoom, setRoomVideo, addMessageToRoom };
+const setUserMuteState = (roomId, socketId, isMuted) => {
+    const room = rooms.get(roomId);
+    if (!room) return null;
+    room.users.forEach((u) => {
+        if (u.socketId === socketId) {
+            u.isMuted = isMuted;
+        }
+    });
+    return room;
+};
+
+const setUserCameraState = (roomId, socketId, isCameraOn) => {
+    const room = rooms.get(roomId);
+    if (!room) return null;
+    room.users.forEach((u) => {
+        if (u.socketId === socketId) {
+            u.isCameraOn = isCameraOn;
+        }
+    });
+    return room;
+};
+
+module.exports = { createRoom, getRoom, addUserToRoom, removeUserFromRoom, setRoomVideo, addMessageToRoom, setYoutubeVideo, getAllRooms, setUserMuteState, setUserCameraState };

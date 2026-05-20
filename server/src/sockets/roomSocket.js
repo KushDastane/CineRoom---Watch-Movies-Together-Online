@@ -20,13 +20,31 @@ const registerRoomSockets = (io, socket) => {
         io.to(roomId).emit("ROOM_UPDATED", room);
     })
 
-    socket.on("PLAY_VIDEO", ({ roomId }) => {
-        socket.to(roomId).emit("PLAY_VIDEO");
-    });
+    socket.on(
+        "PLAY_VIDEO",
 
-    socket.on("PAUSE_VIDEO", ({ roomId }) => {
-        socket.to(roomId).emit("PAUSE_VIDEO");
-    });
+        ({ roomId, currentTime }) => {
+
+            socket.to(roomId).emit(
+                "PLAY_VIDEO",
+
+                { currentTime }
+            );
+        }
+    );
+
+    socket.on(
+        "PAUSE_VIDEO",
+
+        ({ roomId, currentTime }) => {
+
+            socket.to(roomId).emit(
+                "PAUSE_VIDEO",
+
+                { currentTime }
+            );
+        }
+    );
 
     socket.on("SEEK_VIDEO", ({ roomId, currentTime }) => {
         socket.to(roomId).emit("SEEK_VIDEO", { currentTime });
@@ -117,6 +135,45 @@ const registerRoomSockets = (io, socket) => {
             io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
         }
     )
+
+    socket.on(
+        "SET_YOUTUBE_VIDEO",
+
+        ({
+            roomId,
+            youtubeVideoId
+        }) => {
+
+            const updatedRoom =
+                roomService.setYoutubeVideo(
+                    roomId,
+                    youtubeVideoId
+                );
+
+            io.to(roomId).emit(
+                "ROOM_UPDATED",
+                updatedRoom
+            );
+        }
+    );
+
+    socket.on("TOGGLE_MUTE", ({ roomId, isMuted }) => {
+        const updatedRoom = roomService.setUserMuteState(roomId, socket.id, isMuted);
+        if (updatedRoom) {
+            io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+        }
+    });
+
+    socket.on("TOGGLE_CAMERA", ({ roomId, isCameraOn }) => {
+        const updatedRoom = roomService.setUserCameraState(roomId, socket.id, isCameraOn);
+        if (updatedRoom) {
+            io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+        }
+    });
+
+    socket.on("SEND_REACTION", ({ roomId, emoji, username }) => {
+        io.to(roomId).emit("REACTION_RECEIVED", { emoji, username, id: Date.now() });
+    });
 
     socket.on("disconnect", () => {
         console.log("Disconnected:", socket.id);

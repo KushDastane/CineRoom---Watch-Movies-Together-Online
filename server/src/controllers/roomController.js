@@ -50,5 +50,12 @@ const joinRoom = (req,res)=>{
         user:result.user,
     })
 }
+const getAllRooms = (req, res) => {
+    const activeRooms = roomService.getAllRooms();
+    res.json({
+        success: true,
+        rooms: activeRooms,
+    });
+};
 
-module.exports = { createRoom , getRoom, joinRoom };
+module.exports = { createRoom , getRoom, joinRoom, getAllRooms };

@@ -1,1 +1,73 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Outfit", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  
+  --color-brand-blue: #2563eb;
+  --color-brand-blue-hover: #1d4ed8;
+  --color-brand-accent: #2563eb;
+  --color-brand-accent-glow: rgba(37, 99, 235, 0.1);
+}
+
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 8px rgba(37, 99, 235, 0.2);
+  }
+  .box-glow {
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .cine-scrollbar {
+    scrollbar-color: #7c3aed transparent;
+    scrollbar-width: thin;
+  }
+  .cine-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .cine-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .cine-scrollbar::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #2563eb, #7c3aed);
+    border-radius: 999px;
+  }
+  .cine-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #3b82f6, #8b5cf6);
+  }
+}
+
+/* Custom scrollbars for clean minimalist look */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f4f4f5;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}
+
+/* Simple pulse animation for active elements */
+@keyframes active-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.animate-active-pulse {
+  animation: active-pulse 2s infinite ease-in-out;
+}

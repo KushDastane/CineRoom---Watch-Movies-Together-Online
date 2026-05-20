@@ -1,110 +1,341 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useTransition } from "../context/TransitionContext";
 import socket from "../socket/socket";
-import { useRef } from "react";
 import api from "../services/api";
+import YouTube from "react-youtube";
+import {
+  FiMic,
+  FiMicOff,
+  FiSend,
+  FiUploadCloud,
+  FiLink,
+  FiLogOut,
+  FiCopy,
+  FiCheck,
+  FiUsers,
+  FiVideo,
+  FiVideoOff,
+  FiActivity,
+  FiMessageSquare,
+  FiChevronDown,
+  FiSettings,
+  FiRefreshCw,
+  FiTv
+} from "react-icons/fi";
+import { FaCrown } from "react-icons/fa";
+
+const ParticipantVideo = ({ stream, isMuted = false }) => {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      muted={isMuted}
+      className="w-full h-full object-cover rounded-md bg-zinc-950"
+    />
+  );
+};
 
 const Room = () => {
   const { roomId } = useParams();
+  const navigate = useNavigate();
+  const { navigateWithTransition } = useTransition();
   const videoRef = useRef(null);
+  const youtubePlayerRef = useRef(null);
   const isRemoteAction = useRef(false);
   const [room, setRoom] = useState(null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
   const username = sessionStorage.getItem("username");
   const localStream = useRef(null);
+  const rawStream = useRef(null);
   const peerConnections = useRef({});
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const localVideoTrackRef = useRef(null);
+  const placeholderTrackRef = useRef(null);
   const pendingCandidates = useRef({});
   const [remoteStreams, setRemoteStreams] = useState({});
-  const [isMuted, setIsMuted] = useState(false);
-  const currentUser =
-    room?.users.find(
-      (user) => user.username === username
-    );
+  const [isMuted, setIsMuted] = useState(true);
+  const isMutedRef = useRef(true);
+  isMutedRef.current = isMuted;
+  const gainNodeRef = useRef(null);
+
+  const currentUser = room?.users.find((user) => user.username === username);
   const [message, setMessage] = useState("");
   const isHost = currentUser?.isHost;
 
+  const roomRef = useRef(null);
+  roomRef.current = room;
+  const isHostRef = useRef(false);
+  isHostRef.current = isHost;
+
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [showMediaManager, setShowMediaManager] = useState(false);
+  const [floatingReactions, setFloatingReactions] = useState([]);
+  const [theatreMode, setTheatreMode] = useState(false);
+  const [projectorOff, setProjectorOff] = useState(false);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const chatBottomRef = useRef(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setTheatreMode(true);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Auto-scroll chat to latest message smoothly
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [room?.messages]);
+
+  const handleLeaveRoom = () => {
+    setProjectorOff(true);
+    setTheatreMode(false);
+    setTimeout(() => {
+      navigateWithTransition("/");
+    }, 550);
+  };
+
+  // Copy room code function
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(roomId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const sendReaction = (emoji) => {
+    socket.emit("SEND_REACTION", { roomId, emoji, username });
+  };
+
+  const handleSetYoutubeVideo = () => {
+    const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/;
+    const match = youtubeUrl.match(regex);
+
+    if (!match) {
+      return alert("Invalid YouTube URL");
+    }
+
+    const youtubeVideoId = match[1];
+
+    socket.emit("SET_YOUTUBE_VIDEO", {
+      roomId,
+      youtubeVideoId,
+    });
+    setYoutubeUrl("");
+  };
+
+  const handleYoutubeReady = (event) => {
+    youtubePlayerRef.current = event.target;
+  };
+
+  const handleYoutubeStateChange = (event) => {
+    if (!isHostRef.current) return;
+    if (!youtubePlayerRef.current) return;
+
+    const currentTime = youtubePlayerRef.current.getCurrentTime();
+
+    if (event.data === 1) {
+      socket.emit("PLAY_VIDEO", {
+        roomId,
+        currentTime,
+      });
+    }
+
+    if (event.data === 2) {
+      socket.emit("PAUSE_VIDEO", {
+        roomId,
+        currentTime,
+      });
+    }
+  };
+
+  const handleYoutubeSeek = () => {
+    if (!youtubePlayerRef.current) return;
+    socket.emit("SEEK_VIDEO", {
+      roomId,
+      currentTime: youtubePlayerRef.current.getCurrentTime(),
+    });
+  };
 
   const toggleMute = () => {
-    const audioTrack = localStream.current?.getAudioTracks()[0];
+    const rawTrack = rawStream.current?.getAudioTracks()[0];
+    const localTrack = localStream.current?.getAudioTracks()[0];
 
-    if (!audioTrack) return;
+    const nextMuted = !isMutedRef.current;
 
-    audioTrack.enabled = !audioTrack.enabled;
-    setIsMuted(!audioTrack.enabled);
+    // 1. Hardware/Raw track level
+    if (rawTrack) {
+      rawTrack.enabled = !nextMuted;
+    }
+
+    // 2. Web Audio layer Gain Node
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = nextMuted ? 0.0 : 3.0;
+    }
+
+    // 3. Output track level
+    if (localTrack) {
+      localTrack.enabled = !nextMuted;
+    }
+
+    // 4. WebRTC Senders level
+    Object.values(peerConnections.current).forEach((pc) => {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track && sender.track.kind === "audio") {
+          sender.track.enabled = !nextMuted;
+        }
+      });
+    });
+
+    isMutedRef.current = nextMuted;
+    setIsMuted(nextMuted);
+
+    // 5. Sync state with other peers via socket
+    socket.emit("TOGGLE_MUTE", { roomId, isMuted: nextMuted });
   };
 
   useEffect(() => {
     const fetchRoom = async () => {
       try {
         const response = await api.get(`/room/${roomId}`);
-
         setRoom(response.data.room);
-
       } catch (error) {
         console.error(error);
-
       } finally {
         setLoading(false);
       }
     };
 
     fetchRoom();
-
   }, [roomId]);
 
-const initializeVoice = async () => {
+  const createPlaceholderVideoTrack = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 320;
+    canvas.height = 240;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#1e1b4b"; // deep indigo background
+    ctx.fillRect(0, 0, 320, 240);
+    ctx.fillStyle = "#818cf8";
+    ctx.font = "bold 12px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("CAMERA OFF", 160, 120);
+    const stream = canvas.captureStream(10);
+    const track = stream.getVideoTracks()[0];
+    placeholderTrackRef.current = track;
+    return track;
+  };
 
-  try {
+  const toggleCamera = async () => {
+    try {
+      const nextCameraOn = !isCameraOn;
 
-    const stream =
-      await navigator.mediaDevices
-        .getUserMedia({
+      // Stop the real camera track IMMEDIATELY (synchronously) so the hardware
+      // indicator light turns off before the async getUserMedia call even starts.
+      if (!nextCameraOn && localVideoTrackRef.current) {
+        localVideoTrackRef.current.stop();
+        localVideoTrackRef.current = null;
+      }
 
-          audio: {
-            echoCancellation: true,
-          },
+      setIsCameraOn(nextCameraOn);
 
-          video: false,
-        });
+      const audioTrack = localStream.current?.getAudioTracks()[0];
+      if (!audioTrack) return;
 
-    const audioContext =
-      new AudioContext();
+      let newVideoTrack;
 
-    const source =
-      audioContext
-        .createMediaStreamSource(
-          stream
-        );
+      if (nextCameraOn) {
+        try {
+          const videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 320, height: 240, frameRate: 15 }
+          });
+          newVideoTrack = videoStream.getVideoTracks()[0];
+          localVideoTrackRef.current = newVideoTrack;
+        } catch (camErr) {
+          console.error("Webcam access denied or unavailable", camErr);
+          alert("Could not access webcam. Please check permissions or device connection.");
+          setIsCameraOn(false);
+          return;
+        }
+      } else {
+        newVideoTrack = createPlaceholderVideoTrack();
+      }
 
-    const gainNode =
-      audioContext.createGain();
+      if (localStream.current) {
+        const oldVideoTrack = localStream.current.getVideoTracks()[0];
+        if (oldVideoTrack) localStream.current.removeTrack(oldVideoTrack);
+        localStream.current.addTrack(newVideoTrack);
+      }
 
-    gainNode.gain.value = 3.0;
+      Object.values(peerConnections.current).forEach((pc) => {
+        const senders = pc.getSenders();
+        const videoSender = senders.find((s) => s.track && s.track.kind === "video");
+        if (videoSender) {
+          videoSender.replaceTrack(newVideoTrack)
+            .then(() => console.log("Video track replaced in peer connection"))
+            .catch((err) => console.error("Failed to replace video track", err));
+        }
+      });
 
-    source.connect(gainNode);
+      socket.emit("TOGGLE_CAMERA", { roomId, isCameraOn: nextCameraOn });
+    } catch (error) {
+      console.error("Error toggling camera", error);
+    }
+  };
 
-    const destination =
-      audioContext
-        .createMediaStreamDestination();
+  const initializeVoice = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+        },
+        video: false,
+      });
 
-    gainNode.connect(destination);
+      rawStream.current = stream;
 
-    localStream.current =
-      destination.stream;
+      const audioContext = new AudioContext();
+      const source = audioContext.createMediaStreamSource(stream);
+      const gainNode = audioContext.createGain();
 
-    console.log(
-      "Amplified microphone connected",
-      localStream.current
-    );
+      gainNode.gain.value = isMutedRef.current ? 0.0 : 3.0;
+      gainNodeRef.current = gainNode;
 
-  } catch (error) {
+      source.connect(gainNode);
 
-    console.error(
-      "Mic access denied",
-      error
-    );
-  }
-};
+      const destination = audioContext.createMediaStreamDestination();
+      gainNode.connect(destination);
+
+      const audioTrack = destination.stream.getAudioTracks()[0];
+      const videoTrack = createPlaceholderVideoTrack();
+
+      localStream.current = new MediaStream([audioTrack, videoTrack]);
+
+      // Initialize the track state according to current mute state
+      const rawTrack = stream.getAudioTracks()[0];
+      if (rawTrack) {
+        rawTrack.enabled = !isMutedRef.current;
+      }
+      if (audioTrack) {
+        audioTrack.enabled = !isMutedRef.current;
+      }
+
+      console.log("Amplified microphone and placeholder camera connected", localStream.current);
+    } catch (error) {
+      console.error("Mic access denied", error);
+    }
+  };
 
   const createPeerConnection = (targetSocket) => {
     const pc = new RTCPeerConnection({
@@ -117,6 +348,9 @@ const initializeVoice = async () => {
     peerConnections.current[targetSocket] = pc;
 
     localStream.current?.getTracks().forEach((track) => {
+      if (track.kind === "audio") {
+        track.enabled = !isMutedRef.current;
+      }
       pc.addTrack(track, localStream.current);
     });
 
@@ -172,8 +406,8 @@ const initializeVoice = async () => {
 
   useEffect(() => {
     const username = sessionStorage.getItem("username");
-
     if (!username) {
+      navigate("/");
       return;
     }
 
@@ -226,31 +460,63 @@ const initializeVoice = async () => {
       });
     });
 
-    socket.on("PLAY_VIDEO", () => {
-      isRemoteAction.current = true;
-      videoRef.current?.play();
-    });
-
-    socket.on("PAUSE_VIDEO", () => {
-      isRemoteAction.current = true;
-      videoRef.current?.pause();
-    });
-
-    socket.on("SEEK_VIDEO", ({ currentTime }) => {
-      isRemoteAction.current = true;
-      if (videoRef.current) {
+    socket.on("PLAY_VIDEO", ({ currentTime }) => {
+      if (roomRef.current?.youtubeVideoId) {
+        youtubePlayerRef.current?.seekTo(currentTime, true);
+        youtubePlayerRef.current?.playVideo();
+      } else {
         isRemoteAction.current = true;
-        videoRef.current.currentTime = currentTime;
+        videoRef.current?.play();
       }
     });
 
-    socket.on("WEBRTC_OFFER",
-      async ({ offer, senderSocketId }) => {
-        const pc = createPeerConnection(senderSocketId);
+    socket.on("PAUSE_VIDEO", ({ currentTime }) => {
+      if (roomRef.current?.youtubeVideoId) {
+        youtubePlayerRef.current?.seekTo(currentTime, true);
+        youtubePlayerRef.current?.pauseVideo();
+      } else {
+        isRemoteAction.current = true;
+        videoRef.current?.pause();
+      }
+    });
 
-        await pc.setRemoteDescription(
-          new RTCSessionDescription(offer)
-        );
+    socket.on("SEEK_VIDEO", ({ currentTime }) => {
+      if (roomRef.current?.youtubeVideoId) {
+        youtubePlayerRef.current?.seekTo(currentTime, true);
+      } else {
+        isRemoteAction.current = true;
+        if (videoRef.current) {
+          videoRef.current.currentTime = currentTime;
+        }
+      }
+    });
+
+    socket.on("WEBRTC_OFFER", async ({ offer, senderSocketId }) => {
+      const pc = createPeerConnection(senderSocketId);
+
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+      // Process any queued ICE candidates for this sender
+      const candidates = pendingCandidates.current[senderSocketId] || [];
+      for (const candidate of candidates) {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          .catch((err) => console.error("Error adding queued ICE candidate", err));
+      }
+      pendingCandidates.current[senderSocketId] = [];
+
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("WEBRTC_ANSWER", {
+        roomId,
+        targetSocketId: senderSocketId,
+        answer,
+      });
+    });
+
+    socket.on("WEBRTC_ANSWER", async ({ answer, senderSocketId }) => {
+      const pc = peerConnections.current[senderSocketId];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
 
         // Process any queued ICE candidates for this sender
         const candidates = pendingCandidates.current[senderSocketId] || [];
@@ -260,71 +526,37 @@ const initializeVoice = async () => {
         }
         pendingCandidates.current[senderSocketId] = [];
 
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        socket.emit(
-          "WEBRTC_ANSWER",
-          {
-            roomId,
-            targetSocketId: senderSocketId,
-            answer,
-          }
-        );
+        console.log("WEBRTC Connected");
       }
-    );
+    });
 
-    socket.on(
-      "WEBRTC_ANSWER",
-      async ({
-        answer,
-        senderSocketId
-      }) => {
+    socket.on("ICE_CANDIDATE", async ({ candidate, senderSocketId }) => {
+      try {
         const pc = peerConnections.current[senderSocketId];
-        if (pc) {
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(answer)
-          );
+        if (!pc) return;
 
-          // Process any queued ICE candidates for this sender
-          const candidates = pendingCandidates.current[senderSocketId] || [];
-          for (const candidate of candidates) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate))
-              .catch((err) => console.error("Error adding queued ICE candidate", err));
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          console.log("ICE Candidate added directly");
+        } else {
+          if (!pendingCandidates.current[senderSocketId]) {
+            pendingCandidates.current[senderSocketId] = [];
           }
-          pendingCandidates.current[senderSocketId] = [];
-
-          console.log(
-            "WEBRTC Connected"
-          );
+          pendingCandidates.current[senderSocketId].push(candidate);
+          console.log("ICE Candidate queued");
         }
+      } catch (error) {
+        console.error("ICE error", error);
       }
-    );
+    });
 
-    socket.on(
-      "ICE_CANDIDATE",
-      async ({
-        candidate,
-        senderSocketId
-      }) => {
-        try {
-          const pc = peerConnections.current[senderSocketId];
-          if (!pc) return;
-
-          if (pc.remoteDescription && pc.remoteDescription.type) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            console.log("ICE Candidate added directly");
-          } else {
-            if (!pendingCandidates.current[senderSocketId]) {
-              pendingCandidates.current[senderSocketId] = [];
-            }
-            pendingCandidates.current[senderSocketId].push(candidate);
-            console.log("ICE Candidate queued");
-          }
-        } catch (error) {
-          console.error("ICE error", error);
-        }
-      }
-    );
+    socket.on("REACTION_RECEIVED", ({ emoji, username, id }) => {
+      const left = Math.random() * 80 + 10;
+      setFloatingReactions((prev) => [...prev, { id, emoji, username, left }]);
+      setTimeout(() => {
+        setFloatingReactions((prev) => prev.filter((r) => r.id !== id));
+      }, 2000);
+    });
 
     return () => {
       // Clean up all active WebRTC connections and state on unmount
@@ -335,9 +567,24 @@ const initializeVoice = async () => {
       pendingCandidates.current = {};
       setRemoteStreams({});
 
+      if (rawStream.current) {
+        rawStream.current.getTracks().forEach((track) => track.stop());
+        rawStream.current = null;
+      }
+
       if (localStream.current) {
         localStream.current.getTracks().forEach((track) => track.stop());
         localStream.current = null;
+      }
+
+      if (localVideoTrackRef.current) {
+        localVideoTrackRef.current.stop();
+        localVideoTrackRef.current = null;
+      }
+
+      if (placeholderTrackRef.current) {
+        placeholderTrackRef.current.stop();
+        placeholderTrackRef.current = null;
       }
 
       socket.off("ROOM_UPDATED");
@@ -347,21 +594,30 @@ const initializeVoice = async () => {
       socket.off("WEBRTC_OFFER");
       socket.off("WEBRTC_ANSWER");
       socket.off("ICE_CANDIDATE");
+      socket.off("REACTION_RECEIVED");
     };
   }, [roomId]);
 
   if (loading) {
     return (
-      <div className="p-10 text-2xl">
-        Loading...
+      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center font-mono text-zinc-400 text-xs">
+        <FiRefreshCw className="animate-spin text-brand-blue w-6 h-6 mb-3" />
+        <span>LOADING SCREEN CONFIGURATION...</span>
       </div>
     );
   }
 
   if (!room) {
     return (
-      <div className="p-10 text-2xl text-red-500">
-        Room not found
+      <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center font-mono text-zinc-500 text-xs gap-4">
+        <span className="text-red-650 font-bold text-sm">ROOM NOT FOUND</span>
+        <span>The requested room session does not exist or has ended.</span>
+        <button
+          onClick={() => navigateWithTransition("/")}
+          className="border border-zinc-300 hover:border-zinc-900 bg-white px-4 py-2 rounded text-zinc-800 cursor-pointer font-bold transition-colors"
+        >
+          RETURN TO LOBBY
+        </button>
       </div>
     );
   }
@@ -408,145 +664,504 @@ const initializeVoice = async () => {
     try {
       const formData = new FormData();
       formData.append("video", file);
-      const response = await api.post(
-        "/upload/video",
-        formData
-      );
+      const response = await api.post("/upload/video", formData);
 
       socket.emit("SET_VIDEO", {
         roomId,
         videoUrl: response.data.videoUrl,
       });
-    }
-    catch (error) {
+    } catch (error) {
       console.error("Upload error:", error);
     }
   };
 
   return (
-    <div className="p-10">
-      <h1 className="text-4xl font-bold mb-6">
-        CineRoom
-      </h1>
-
-      <h2 className="text-2xl mb-4">
-        Room ID: {room.roomId}
-      </h2>
-
-      {isHost && (
-        <div className="mb-6">
-          <input
-            type="file"
-            accept="video/mp4"
-            onChange={handleVideoUpload}
-          />
+    <div className={`min-h-screen flex flex-col transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-950 text-zinc-200" : "bg-zinc-50 text-zinc-900"
+      } font-sans selection:bg-brand-blue selection:text-white`}>
+      {/* Top Header Navigation */}
+      <header className={`border-b transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-900 bg-zinc-900/60" : "border-zinc-200 bg-white/80"
+        } backdrop-blur-md px-4 md:px-6 py-3 md:py-4 flex items-center justify-between sticky top-0 z-50`}>
+        <div className="flex items-center gap-2 md:gap-3">
+          <span className={`font-mono text-base md:text-lg font-bold tracking-widest transition-all duration-[2000ms] ease-in-out ${theatreMode ? "text-zinc-100" : "text-zinc-900"
+            } flex items-center`}>
+            CINEROOM
+            <span className="w-1 md:w-1.5 h-1 md:h-1.5 rounded-full bg-blue-800 inline-block ml-1"></span>
+          </span>
         </div>
-      )}
 
-      <div className="mb-8">
-        <video
-          key={room.videoUrl}
-          ref={videoRef}
-          controls={isHost}
-          className="w-full max-w-3xl rounded-xl"
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onSeeking={handleSeeked}
-        >
-          <source
-            src={room.videoUrl}
-            type="video/mp4"
-          />
-        </video>
-      </div>
-
-      <button
-        onClick={toggleMute}
-        className="
-          bg-black
-          text-white
-          px-4
-          py-2
-          rounded-lg
-          mb-4
-        "
-      >
-        {isMuted ? "Unmute Mic" : "Mute Mic"}
-      </button>
-
-      <div className="mb-6">
-        <h3 className="text-xl font-semibold mb-2">
-          Users
-        </h3>
-
-        <div className="flex flex-col gap-2">
-          {room.users.map((user) => (
-            <div
-              key={user.id}
-              className="border p-3 rounded-lg"
+        {/* Center: Room Code badge */}
+        <div className="flex items-center gap-1.5 md:gap-2">
+          <div className={`flex items-center gap-1.5 md:gap-2 border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-850 bg-zinc-900 text-zinc-400" : "border-zinc-200 bg-white text-zinc-500"
+            } px-2.5 md:px-3.5 py-1 md:py-1.5 rounded font-mono text-[10px] md:text-xs shadow-sm`}>
+            <span className="hidden sm:inline font-bold">Room Code:</span>
+            <span className={`font-bold transition-all duration-[2000ms] ease-in-out ${theatreMode ? "text-zinc-100" : "text-zinc-900"}`}>{roomId}</span>
+            <button
+              onClick={handleCopyKey}
+              className={`ml-1 transition-colors p-0.5 cursor-pointer ${theatreMode ? "text-zinc-500 hover:text-zinc-100" : "text-zinc-400 hover:text-zinc-900"
+                }`}
+              title="Copy Room Code"
             >
-              {user.username}
-              {user.isHost && " 👑"}
-            </div>
-          ))}
+              {copied ? <FiCheck className="text-emerald-600" /> : <FiCopy />}
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="mt-10">
-        <h3 className="text-2xl font-bold mb-4">
-          Chat
-        </h3>
-
-        <div
-          className="
-            border
-            rounded-lg
-            p-4
-            h-64
-            overflow-y-auto
-            mb-4
-          "
+        {/* Right: Leave Room */}
+        <button
+          onClick={handleLeaveRoom}
+          className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode
+            ? "border-zinc-850 hover:border-red-650 hover:bg-red-950/30 text-zinc-455 hover:text-red-500 bg-zinc-900"
+            : "border-zinc-200 hover:border-red-600 hover:bg-red-50 text-zinc-600 hover:text-red-600 bg-white"
+            } px-3 md:px-4 py-1 md:py-1.5 rounded font-mono text-[10px] md:text-xs font-bold tracking-wider flex items-center gap-1 md:gap-1.5 transition-all cursor-pointer`}
         >
-          {room.messages?.map((msg) => (
-            <div
-              key={msg.id}
-              className="mb-3"
-            >
-              <span className="font-bold">
-                {msg.username}
-              </span>
-              : {msg.text}
+          <FiLogOut className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">LEAVE ROOM</span>
+        </button>
+      </header>
+
+      {/* Main Grid View */}
+      <main className="flex-grow grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto w-full">
+        {/* Left Side: Video viewport and host controllers */}
+        <section className="lg:col-span-8 flex flex-col gap-3 lg:gap-5">
+          {/* Cinema Player Container */}
+          <div className={`relative border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-900 bg-black" : "border-zinc-200 bg-zinc-950"
+            } rounded-xl overflow-hidden aspect-video flex items-center justify-center box-glow`}>
+            {/* Inline floating reactions stylesheet */}
+            <style>{`
+              @keyframes float-up {
+                0% {
+                  transform: translateY(0) scale(0.5);
+                  opacity: 0;
+                }
+                15% {
+                  transform: translateY(-10px) scale(1.25);
+                  opacity: 1;
+                }
+                100% {
+                  transform: translateY(-160px) scale(1);
+                  opacity: 0;
+                }
+              }
+              .animate-float-up {
+                animation: float-up 2s forwards ease-out;
+              }
+            `}</style>
+
+            {/* Watching Count Overlay (Top-Left Corner) */}
+            <div className="absolute top-4 left-4 z-40 bg-zinc-900/80 hover:bg-zinc-900 backdrop-blur border border-zinc-800 rounded px-2.5 py-1 flex items-center gap-1.5 shadow text-[9px] font-mono font-bold text-zinc-300 select-none tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <FiUsers className="w-3.5 h-3.5 text-zinc-500" />
+              <span>{room.users.length}</span>
             </div>
-          ))}
-        </div>
 
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Type message..."
-            className="
-              border
-              p-3
-              rounded-lg
-              flex-1
-            "
-          />
+            {/* Render video content with Projector Shutdown effect */}
+            <div className={`w-full h-full flex items-center justify-center transition-all ${projectorOff ? "projector-shutdown-active" : ""
+              }`}>
+              {room.youtubeVideoId ? (
+                <div className={`w-full h-full ${!isHost ? "pointer-events-none" : ""}`}>
+                  <YouTube
+                    videoId={room.youtubeVideoId}
+                    onReady={handleYoutubeReady}
+                    onStateChange={handleYoutubeStateChange}
+                    className="w-full h-full"
+                    iframeClassName="w-full h-full rounded-lg"
+                  />
+                </div>
+              ) : room.videoUrl ? (
+                <div className={`w-full h-full ${!isHost ? "pointer-events-none" : ""}`}>
+                  <video
+                    ref={videoRef}
+                    controls={isHost}
+                    className="w-full h-full rounded-lg bg-black object-contain"
+                    onPlay={handlePlay}
+                    onPause={handlePause}
+                    onSeeking={handleSeeked}
+                    key={room.videoUrl}
+                  >
+                    <source
+                      src={room.videoUrl.startsWith("http") ? room.videoUrl : `http://localhost:5000${room.videoUrl}`}
+                      type="video/mp4"
+                    />
+                  </video>
+                </div>
+              ) : isHost ? (
+                /* Empty state screen with direct Host controls */
+                <div className="w-full h-full flex items-center justify-center p-3 sm:p-6 bg-zinc-900 select-none">
+                  <div className="max-w-md w-full flex flex-row items-center justify-center gap-2 sm:gap-6 font-mono">
+                    {/* Local file upload block */}
+                    <div className="flex flex-col gap-1.5 sm:gap-2 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 rounded-lg w-[115px] sm:w-[180px]">
 
-          <button
-            onClick={sendMessage}
-            className="
-              bg-blue-500
-              text-white
-              px-4
-              rounded-lg
-            "
-          >
-            Send
-          </button>
-        </div>
-      </div>
+                      <label className="border border-dashed border-zinc-800 hover:border-zinc-700 bg-zinc-900 hover:bg-zinc-850 p-2 sm:p-4 rounded flex flex-col items-center justify-center gap-1 cursor-pointer transition-colors h-[50px] sm:h-[76px]">
+                        <FiUploadCloud className="text-zinc-500 w-4 h-4 sm:w-5 sm:h-5" />
+                        <span className="text-[8px] sm:text-[9px] font-sans font-bold text-zinc-300 text-center truncate w-full">Choose File</span>
+                        <input
+                          type="file"
+                          accept="video/mp4"
+                          onChange={handleVideoUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    <span className="text-zinc-500 text-[8px] sm:text-[10px] font-bold uppercase tracking-wider select-none">OR</span>
+
+                    {/* YouTube feed block */}
+                    <div className="flex flex-col gap-1.5 sm:gap-2 bg-zinc-950 border border-zinc-800 p-2 sm:p-4 rounded-lg w-[115px] sm:w-[180px]">
+
+                      <div className="flex flex-col gap-1.5 sm:gap-2 justify-center h-[50px] sm:h-[76px]">
+                        <input
+                          type="text"
+                          placeholder="YouTube URL..."
+                          value={youtubeUrl}
+                          onChange={(e) => setYoutubeUrl(e.target.value)}
+                          className="border border-zinc-800 bg-zinc-900 px-1 py-0.5 sm:px-2 sm:py-1 rounded font-sans text-[8px] sm:text-[10px] text-zinc-100 placeholder:text-zinc-650 focus:outline-none focus:border-zinc-700 transition-all w-full text-center"
+                        />
+                        <button
+                          onClick={handleSetYoutubeVideo}
+                          className="
+                            w-full
+                            h-6 sm:h-10
+                            bg-white
+                            hover:bg-zinc-100
+                            active:scale-[0.98]
+                            text-black
+                            font-mono
+                            text-[8px] sm:text-[11px]
+                            font-semibold
+                            tracking-[0.1em] sm:tracking-[0.18em]
+                            rounded-md
+                            border border-zinc-200
+                            transition-all duration-200
+                            flex items-center justify-center gap-1 sm:gap-2
+                            cursor-pointer
+                          "
+                        >
+                          <FiLink className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                          LOAD
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* Guest empty state screen */
+                <div className="flex flex-col items-center justify-center text-center p-6 text-zinc-400 font-mono bg-zinc-900 w-full h-full">
+                  <FiTv className="text-zinc-700 text-5xl mb-3 animate-active-pulse" />
+                  <span className="text-xs font-bold tracking-widest text-zinc-400 uppercase">NO VIDEO LOADED</span>
+                  <p className="text-[10px] text-zinc-500 mt-2 max-w-xs leading-relaxed">
+                    Waiting for the host to load a video feed.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Floating Emoji Reactions */}
+            {floatingReactions.map((reaction) => (
+              <div
+                key={reaction.id}
+                className="absolute bottom-16 text-3xl animate-float-up pointer-events-none z-50 flex flex-col items-center select-none gap-1 -translate-x-1/2"
+                style={{ left: `${reaction.left}%` }}
+              >
+                <span className="bg-white border-2 border-black px-2.5 py-0.5 rounded-md text-xs sm:text-sm font-black text-black shadow-md tracking-wider">
+                  {reaction.username}
+                </span>
+                <span className="text-3xl sm:text-4xl drop-shadow-md">{reaction.emoji}</span>
+              </div>
+            ))}
+
+            {/* Reaction Selector Dock — YouTube Live style */}
+            <div className="absolute bottom-3 right-3 z-40 flex flex-col items-end gap-1.5">
+              {/* Emoji picker tray — slides up on open */}
+              <div
+                className={`flex items-center gap-1 bg-black/70 backdrop-blur-sm border border-white/10 rounded-full px-2.5 py-1 shadow-lg transition-all duration-200 ${showReactionPicker
+                    ? 'opacity-100 translate-y-0 pointer-events-auto'
+                    : 'opacity-0 translate-y-2 pointer-events-none'
+                  }`}
+              >
+                {["❤️", "😂", "😮", "👏", "🔥"].map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => { sendReaction(emoji); setShowReactionPicker(false); }}
+                    className="hover:scale-125 active:scale-90 transition-transform duration-100 p-0.5 text-base cursor-pointer select-none"
+                    title={`Send ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+              {/* Trigger button */}
+              <button
+                onClick={() => setShowReactionPicker((v) => !v)}
+                className="w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 backdrop-blur-sm border border-white/10 flex items-center justify-center text-base shadow-md transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                title="React"
+              >
+                {showReactionPicker ? '✕' : '😊'}
+              </button>
+            </div>
+          </div>
+
+          {/* Room Media Controls (For Host Control) */}
+          {isHost && (
+            <div className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-900 bg-zinc-900" : "border-zinc-200 bg-white"
+              } rounded-md overflow-hidden shadow-sm`}>
+              <button
+                onClick={() => setShowMediaManager(!showMediaManager)}
+                className={`w-full flex items-center justify-between p-4 transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-900/50 text-zinc-300 hover:bg-zinc-850" : "bg-zinc-50 text-zinc-655 hover:bg-zinc-100"
+                  } text-xs font-mono font-bold tracking-wider uppercase cursor-pointer`}
+              >
+                <div className="flex items-center gap-2">
+                  <FiSettings className={theatreMode ? "text-zinc-400" : "text-zinc-600"} />
+                  <span>Change Video Feed</span>
+                </div>
+                <FiChevronDown className={`w-4 h-4 transition-all duration-[2000ms] ${theatreMode ? "text-zinc-400" : "text-zinc-450"
+                  } ${showMediaManager ? 'transform rotate-180' : ''}`} />
+              </button>
+
+              <div className={`transition-all duration-300 ease-in-out ${showMediaManager
+                ? `max-h-[400px] border-t ${theatreMode ? 'border-zinc-850' : 'border-zinc-200'} opacity-100`
+                : 'max-h-0 opacity-0 overflow-hidden'
+                }`}>
+                <div className="p-5 flex flex-col md:flex-row gap-5">
+                  {/* Upload video block */}
+                  <div className="flex-grow flex flex-col gap-2">
+                    <label className={`text-[10px] font-mono font-bold tracking-wider uppercase ${theatreMode ? "text-zinc-500" : "text-zinc-400"
+                      }`}>Upload Local Video</label>
+                    <label className={`border border-dashed transition-all duration-[2000ms] ease-in-out ${theatreMode
+                      ? "border-zinc-800 hover:border-zinc-700 bg-zinc-950 hover:bg-zinc-900/50"
+                      : "border-zinc-200 hover:border-zinc-400 bg-zinc-50 hover:bg-zinc-100/50"
+                      } p-4 rounded-lg flex flex-col items-center justify-center gap-2 cursor-pointer w-full h-full min-h-[90px]`}>
+                      <FiUploadCloud className={theatreMode ? "text-zinc-500" : "text-zinc-400"} w-6 h-6 />
+                      <span className={`text-[10px] font-sans font-bold transition-all duration-[2000ms] ${theatreMode ? "text-zinc-300" : "text-zinc-700"
+                        }`}>Select MP4 File</span>
+                      <input
+                        type="file"
+                        accept="video/mp4"
+                        onChange={handleVideoUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Divider line for MD screen */}
+                  <div className={`hidden md:block w-px transition-colors duration-[2000ms] ${theatreMode ? "bg-zinc-850" : "bg-zinc-200"
+                    }`}></div>
+
+                  {/* YouTube Link Feed block */}
+                  <div className="flex-grow flex flex-col gap-2 justify-between">
+                    <div className="flex flex-col gap-2">
+                      <label className={`text-[10px] font-mono font-bold tracking-wider uppercase ${theatreMode ? "text-zinc-500" : "text-zinc-400"
+                        }`}>Load YouTube Video</label>
+                      <div className="relative w-full">
+                        <FiLink className="absolute left-3 top-3 text-zinc-400 w-3.5 h-3.5" />
+                        <input
+                          type="text"
+                          placeholder="Paste YouTube video link..."
+                          value={youtubeUrl}
+                          onChange={(e) => setYoutubeUrl(e.target.value)}
+                          className={`w-full border transition-all duration-[2000ms] ease-in-out ${theatreMode
+                            ? "border-zinc-850 bg-zinc-950 text-zinc-200 focus:border-zinc-700 focus:bg-zinc-900"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-800 focus:border-zinc-900 focus:bg-white"
+                            } pl-9 pr-3 py-1.5 rounded font-sans text-xs placeholder:text-zinc-400 focus:outline-none`}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleSetYoutubeVideo}
+                      className={`w-full transition-colors duration-[2000ms] ${theatreMode ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-950" : "bg-zinc-950 hover:bg-zinc-800 text-white"
+                        } font-mono text-xs font-bold py-2 rounded flex items-center justify-center gap-1.5 cursor-pointer mt-2`}
+                    >
+                      <FiLink className="w-3.5 h-3.5" />
+                      LOAD VIDEO
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Right Side: Sidebar containing Voice Chat & Chat logs */}
+        <section className="lg:col-span-4 flex flex-col gap-4 lg:gap-5 h-auto lg:h-[calc(100svh-140px)] lg:min-h-0 lg:sticky lg:top-[90px]">
+          {/* Peer Voice Stream panel */}
+          <div className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
+            } rounded-lg p-4 flex flex-col lg:flex-none shadow-sm`}>
+            {/* List of active room peers */}
+            <div className="overflow-visible">
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(112px,140px))] justify-center gap-2 w-full">
+                {[
+                  ...new Map(
+                    room.users.map((user) => [user.socketId, user])
+                  ).values()
+                ].map((user) => {
+                  const isPeerHost = user.isHost;
+                  const isSelf = user.username === username;
+                  const userStream = isSelf ? localStream.current : remoteStreams[user.socketId];
+                  const hasCamera = user.isCameraOn;
+
+                  return (
+                    <div
+                      key={user.socketId}
+                      className={`relative aspect-[4/3] w-full rounded-lg overflow-hidden border transition-all duration-300 ${isSelf
+                          ? "border-blue-500/40 bg-zinc-950"
+                          : "border-zinc-800/80 bg-zinc-950"
+                        }`}
+                    >
+                      {/* Video Player */}
+                      {userStream ? (
+                        <ParticipantVideo stream={userStream} isMuted={isSelf} />
+                      ) : (
+                        <div className="w-full h-full bg-zinc-950 flex items-center justify-center">
+                          <span className="text-[10px] font-mono text-zinc-500">CONNECTING...</span>
+                        </div>
+                      )}
+
+                      {/* Camera Off Overlay Avatar */}
+                      {!hasCamera && (
+                        <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center select-none z-10">
+                          <div className={`w-9 h-9 rounded-full bg-gradient-to-tr ${isSelf ? "from-blue-600 to-indigo-500" : "from-zinc-700 to-zinc-600"
+                            } flex items-center justify-center text-white text-sm font-bold shadow-md`}>
+                            {user.username.charAt(0).toUpperCase()}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Header Badge: Username & Crown */}
+                      <div className="absolute top-1.5 left-1.5 z-20 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[8px] font-mono text-white flex items-center gap-1 select-none">
+                        <span className="truncate max-w-[50px]">{user.username}</span>
+                        {isSelf && <span className="text-blue-400 font-bold">(YOU)</span>}
+                        {isPeerHost && <FaCrown className="w-2.5 h-2.5 text-amber-400" />}
+                      </div>
+
+                      {/* Footer Badge: Mic Status */}
+                      <div className="absolute bottom-1.5 right-1.5 z-20 bg-black/60 backdrop-blur p-1 rounded-full text-white select-none">
+                        {user.isMuted ? (
+                          <FiMicOff className="w-2.5 h-2.5 text-red-500" />
+                        ) : (
+                          <FiMic className="w-2.5 h-2.5 text-emerald-400" />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Control Row: Mic and Camera Toggles */}
+            <div className="flex gap-4 mt-4 justify-center">
+              {/* Mic button */}
+              <button
+                onClick={toggleMute}
+                className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm border ${isMuted
+                  ? theatreMode
+                    ? "border-red-900 bg-red-950/30 text-red-400 hover:bg-red-900/40"
+                    : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                  : theatreMode
+                    ? "border-emerald-900 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/40"
+                    : "border-emerald-250 bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                  }`}
+                title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+              >
+                {isMuted ? <FiMicOff className="w-5 h-5" /> : <FiMic className="w-5 h-5" />}
+              </button>
+
+              {/* Camera button */}
+              <button
+                onClick={toggleCamera}
+                className={`w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm border ${!isCameraOn
+                  ? theatreMode
+                    ? "border-red-900 bg-red-950/30 text-red-400 hover:bg-red-900/40"
+                    : "border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                  : theatreMode
+                    ? "border-emerald-900 bg-emerald-950/30 text-emerald-400 hover:bg-emerald-900/40"
+                    : "border-emerald-250 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  }`}
+                title={isCameraOn ? "Stop Camera" : "Start Camera"}
+              >
+                {isCameraOn ? <FiVideo className="w-5 h-5" /> : <FiVideoOff className="w-5 h-5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Unit conversation chat panel */}
+          <div className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
+            } rounded-lg p-4 flex flex-col min-h-[300px] h-[420px] sm:h-[500px] lg:min-h-0 lg:h-auto lg:flex-1 overflow-hidden shadow-sm`}>
+            <div className={`flex items-center gap-2 text-xs font-mono font-bold tracking-wider uppercase border-b transition-all duration-[2000ms] ease-in-out ${theatreMode ? "text-zinc-300 border-zinc-800" : "text-zinc-600 border-zinc-200"
+              } pb-2`}>
+              <FiMessageSquare className="text-brand-blue" />
+              <span>Chat</span>
+            </div>
+
+            {/* Chat list viewport */}
+            <div className={`flex-grow overflow-y-auto cine-scrollbar mt-3 mb-3 p-3 transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-900/40 border-zinc-800/60 text-zinc-200" : "bg-zinc-50 border-zinc-200 text-zinc-800"
+              } border rounded font-sans text-xs flex flex-col gap-3`}>
+              {room.messages?.length === 0 ? (
+                <div className={`flex-grow flex items-center justify-center text-center p-4 transition-all duration-[2000ms] ${theatreMode ? "text-zinc-500" : "text-zinc-400"
+                  } text-[10px] font-mono`}>
+                  Send a message to start.
+                </div>
+              ) : (
+                room.messages?.map((msg) => {
+                  const isSelf = msg.username === username;
+                  return (
+                    <div key={msg.id} className={`flex flex-col gap-1 max-w-[85%] ${isSelf ? 'self-end items-end' : 'self-start items-start'}`}>
+                      <div className={`flex items-baseline gap-2 text-[9px] text-zinc-400 font-mono ${isSelf ? 'justify-end' : 'justify-start'}`}>
+                        <span className={`font-bold ${isSelf
+                          ? 'text-brand-blue'
+                          : theatreMode ? 'text-zinc-350' : 'text-zinc-650'
+                          }`}>
+                          {msg.username}
+                        </span>
+                        <span>
+                          {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      <p className={`relative pr-7 leading-normal break-all transition-all duration-[2000ms] ease-in-out ${isSelf
+                          ? theatreMode
+                            ? "bg-gradient-to-br from-indigo-600 to-purple-700 text-white border-indigo-500/30"
+                            : "bg-gradient-to-br from-blue-600 to-indigo-600 text-white border-blue-500/20"
+                          : theatreMode
+                            ? "bg-gradient-to-br from-zinc-800 to-zinc-900 text-zinc-100 border-zinc-850"
+                            : "bg-gradient-to-br from-white to-zinc-50 text-zinc-850 border-zinc-200"
+                        } px-2.5 py-1.5 rounded border shadow-sm`}>
+                        {msg.text}
+                        <span className="absolute right-1.5 bottom-1 text-[10px] select-none pointer-events-none opacity-80" title="Popcorn!">🍿</span>
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+              {/* Invisible anchor — always scrolled into view on new messages */}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Message input tray */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                placeholder="Type a message..."
+                className={`flex-grow border transition-all duration-[2000ms] ease-in-out ${theatreMode
+                  ? "border-zinc-800 bg-zinc-900/80 text-zinc-200 focus:border-zinc-700 focus:bg-zinc-850"
+                  : "border-zinc-200 bg-zinc-50 text-zinc-850 focus:border-zinc-900 focus:bg-white"
+                  } px-3 py-2 rounded font-sans text-xs placeholder:text-zinc-500 focus:outline-none`}
+              />
+              <button
+                onClick={sendMessage}
+                className={`transition-colors duration-[2000ms] ${theatreMode ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-950" : "bg-zinc-950 hover:bg-zinc-800 text-white"
+                  } px-4 py-2 rounded flex items-center justify-center cursor-pointer`}
+                title="Send Message"
+              >
+                <FiSend className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
 
       {/* Render invisible HTML5 audio tags for each remote WebRTC stream */}
       {Object.entries(remoteStreams).map(([socketId, stream]) => (

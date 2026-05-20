@@ -1,0 +1,215 @@
+/* Curtain Container covering full viewport */
+.curtain-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none; /* By default, let interactions pass through if idle, but we block when active */
+  overflow: hidden;
+  clip-path: inset(0); /* Clip any shadows outside the viewport */
+  display: flex;
+  visibility: hidden;
+  transition: visibility 0s 0.9s; /* Delay visibility change when opening so the animation completes */
+}
+
+.curtain-container.closing,
+.curtain-container.closed,
+.curtain-container.opening {
+  pointer-events: auto; /* Block all user interactions */
+  visibility: visible;
+  transition: none; /* Keep it visible immediately */
+}
+
+/* Background Dim Overlay */
+.curtain-overlay-dim {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 0.8s ease-in-out;
+  pointer-events: none;
+}
+
+.curtain-container.closing .curtain-overlay-dim,
+.curtain-container.closed .curtain-overlay-dim {
+  opacity: 1;
+}
+
+.curtain-container.opening .curtain-overlay-dim {
+  opacity: 0;
+}
+
+/* Curtain Panel style */
+.curtain-panel {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  z-index: 2;
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0); /* Start fully transparent to prevent edge bleed */
+  /* Stacking gradient: vertical dark folds on top of a rich red base gradient */
+  background: 
+    repeating-linear-gradient(
+      to right,
+      rgba(0, 0, 0, 0.45) 0px,
+      rgba(0, 0, 0, 0.15) 15px,
+      rgba(255, 255, 255, 0.08) 35px,
+      rgba(0, 0, 0, 0.15) 55px,
+      rgba(0, 0, 0, 0.45) 75px
+    ),
+    linear-gradient(
+      to bottom,
+      #900 0%,
+      #400 100%
+    );
+  background-size: 80px 100%;
+}
+
+.curtain-left {
+  left: 0;
+  transform: translateX(-100%);
+  border-right: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+.curtain-right {
+  right: 0;
+  transform: translateX(100%);
+  border-left: 1px solid rgba(0, 0, 0, 0.5);
+}
+
+/* Bottom Gold Trim / Fringe */
+.curtain-panel::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 12px;
+  background: linear-gradient(
+    to right,
+    #bf953f 0%,
+    #fcf6ba 25%,
+    #b38728 50%,
+    #fbf5b7 75%,
+    #aa771c 100%
+  );
+  box-shadow: 0 -2px 10px rgba(186, 140, 42, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  border-top: 1px solid rgba(255, 215, 0, 0.4);
+}
+
+/* Left & Right Curtain shadow meeting line details */
+.curtain-left::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 100%;
+  background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.4));
+  pointer-events: none;
+}
+
+.curtain-right::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 10px;
+  height: 100%;
+  background: linear-gradient(to left, transparent, rgba(0, 0, 0, 0.4));
+  pointer-events: none;
+}
+
+/* Spotlight overlay */
+.curtain-spotlight {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 15%,
+    rgba(255, 240, 180, 0.16) 0%,
+    rgba(0, 0, 0, 0) 50%
+  );
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.8s ease-in-out;
+}
+
+.curtain-container.closing .curtain-spotlight,
+.curtain-container.closed .curtain-spotlight {
+  opacity: 1;
+}
+
+.curtain-container.opening .curtain-spotlight {
+  opacity: 0;
+}
+
+/* Transition Animations */
+
+/* 1. Closing animation: smooth slide in with slight elastic bounce at center + delayed shadow */
+.curtain-container.closing .curtain-left {
+  transform: translateX(0);
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0.85);
+  transition: transform 0.9s cubic-bezier(0.25, 1, 0.5, 1.04), box-shadow 0.5s ease-in-out 0.25s;
+}
+
+.curtain-container.closing .curtain-right {
+  transform: translateX(0);
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0.85);
+  transition: transform 0.9s cubic-bezier(0.25, 1, 0.5, 1.04), box-shadow 0.5s ease-in-out 0.25s;
+}
+
+/* 2. Closed state */
+.curtain-container.closed .curtain-left,
+.curtain-container.closed .curtain-right {
+  transform: translateX(0);
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0.85);
+}
+
+/* 3. Opening animation: clean, quick sweep back without bounce + immediate shadow fade */
+.curtain-container.opening .curtain-left {
+  transform: translateX(-100%);
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0);
+  transition: transform 0.9s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.1s ease-in-out;
+}
+
+.curtain-container.opening .curtain-right {
+  transform: translateX(100%);
+  box-shadow: 0 0 45px rgba(0, 0, 0, 0);
+  transition: transform 0.9s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.1s ease-in-out;
+}
+
+/* CRT / Projector Shutdown animation */
+@keyframes projector-shutdown {
+  0% {
+    transform: scale(1);
+    filter: brightness(1) contrast(1);
+  }
+  15% {
+    transform: scale(1.02, 0.98);
+    filter: brightness(1.8) contrast(1.2);
+  }
+  35% {
+    transform: scale(1, 0.008);
+    filter: brightness(3);
+    background: #ffffff;
+  }
+  75% {
+    transform: scale(0.008, 0.008);
+    filter: brightness(5);
+    background: #ffffff;
+  }
+  100% {
+    transform: scale(0);
+    filter: brightness(0);
+    background: #000000;
+    opacity: 0;
+  }
+}
+
+.projector-shutdown-active {
+  animation: projector-shutdown 0.6s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+  transform-origin: center center;
+  pointer-events: none;
+}
+
