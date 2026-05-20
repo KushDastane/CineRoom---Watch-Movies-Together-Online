@@ -35,8 +35,14 @@ const getStoredUserId = () => {
 };
 
 const extractYoutubeVideoId = (url) => {
+  const trimmedUrl = url.trim();
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
   try {
-    const parsedUrl = new URL(url.trim());
+    const parsedUrl = new URL(trimmedUrl);
     const hostname = parsedUrl.hostname.replace(/^www\./, "");
 
     let videoId = null;
@@ -189,6 +195,10 @@ const Room = () => {
   const [showRoomWarmup, setShowRoomWarmup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMediaManager, setShowMediaManager] = useState(false);
+  const [youtubeStatus, setYoutubeStatus] = useState({
+    isLoading: false,
+    error: "",
+  });
   const [uploadState, setUploadState] = useState({
     isUploading: false,
     progress: 0,
@@ -199,6 +209,7 @@ const Room = () => {
   const [theatreMode, setTheatreMode] = useState(false);
   const [projectorOff, setProjectorOff] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const chatListRef = useRef(null);
   const chatBottomRef = useRef(null);
 
   useEffect(() => {
@@ -210,7 +221,13 @@ const Room = () => {
 
   // Auto-scroll chat to latest message smoothly
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const chatList = chatListRef.current;
+    if (!chatList) return;
+
+    chatList.scrollTo({
+      top: chatList.scrollHeight,
+      behavior: "smooth",
+    });
   }, [room?.messages]);
 
   useEffect(() => {
@@ -247,17 +264,40 @@ const Room = () => {
   };
 
   const handleSetYoutubeVideo = () => {
+    setYoutubeStatus({ isLoading: false, error: "" });
     const youtubeVideoId = extractYoutubeVideoId(youtubeUrl);
 
     if (!youtubeVideoId) {
-      return alert("Invalid YouTube URL");
+      setYoutubeStatus({ isLoading: false, error: "Paste a valid YouTube link." });
+      return;
     }
 
-    socket.emit("SET_YOUTUBE_VIDEO", {
-      roomId,
-      youtubeVideoId,
-    });
-    setYoutubeUrl("");
+    if (!socket.connected) {
+      setYoutubeStatus({ isLoading: false, error: "Room connection is still waking up. Try again." });
+      return;
+    }
+
+    setYoutubeStatus({ isLoading: true, error: "" });
+
+    socket.timeout(7000).emit(
+      "SET_YOUTUBE_VIDEO",
+      {
+        roomId,
+        youtubeVideoId,
+      },
+      (error, response) => {
+        if (error || !response?.success) {
+          setYoutubeStatus({
+            isLoading: false,
+            error: response?.message || "Could not load that YouTube video.",
+          });
+          return;
+        }
+
+        setYoutubeUrl("");
+        setYoutubeStatus({ isLoading: false, error: "" });
+      }
+    );
   };
 
   const handleYoutubeReady = (event) => {
@@ -1017,11 +1057,14 @@ const Room = () => {
                         />
                         <button
                           onClick={handleSetYoutubeVideo}
+                          disabled={youtubeStatus.isLoading}
                           className="
                             w-full
                             h-6 sm:h-10 lg:h-12
                             bg-white
                             hover:bg-zinc-100
+                            disabled:opacity-70
+                            disabled:cursor-wait
                             active:scale-[0.98]
                             text-black
                             font-mono
@@ -1036,8 +1079,13 @@ const Room = () => {
                           "
                         >
                           <FiLink className="w-2.5 h-2.5 sm:w-3 sm:h-3 lg:w-4 lg:h-4" />
-                          LOAD
+                          {youtubeStatus.isLoading ? "LOADING" : "LOAD"}
                         </button>
+                        {youtubeStatus.error && (
+                          <p className="text-center font-mono text-[8px] lg:text-[10px] font-bold uppercase tracking-wider text-red-400">
+                            {youtubeStatus.error}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1167,12 +1215,18 @@ const Room = () => {
                     </div>
                     <button
                       onClick={handleSetYoutubeVideo}
+                      disabled={youtubeStatus.isLoading}
                       className={`w-full transition-colors duration-[2000ms] ${theatreMode ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-950" : "bg-zinc-950 hover:bg-zinc-800 text-white"
-                        } font-mono text-xs font-bold py-2 rounded flex items-center justify-center gap-1.5 cursor-pointer mt-2`}
+                        } font-mono text-xs font-bold py-2 rounded flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-wait disabled:opacity-70 mt-2`}
                     >
                       <FiLink className="w-3.5 h-3.5" />
-                      LOAD VIDEO
+                      {youtubeStatus.isLoading ? "LOADING VIDEO" : "LOAD VIDEO"}
                     </button>
+                    {youtubeStatus.error && (
+                      <p className={`font-mono text-[10px] font-bold uppercase tracking-wider ${theatreMode ? "text-red-400" : "text-red-600"}`}>
+                        {youtubeStatus.error}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1292,7 +1346,7 @@ const Room = () => {
             </div>
 
             {/* Chat list viewport */}
-            <div className={`flex-grow overflow-y-auto cine-scrollbar mt-3 mb-3 p-3 transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-900/40 border-zinc-800/60 text-zinc-200" : "bg-zinc-50 border-zinc-200 text-zinc-800"
+            <div ref={chatListRef} className={`flex-grow overflow-y-auto cine-scrollbar mt-3 mb-3 p-3 transition-all duration-[2000ms] ease-in-out ${theatreMode ? "bg-zinc-900/40 border-zinc-800/60 text-zinc-200" : "bg-zinc-50 border-zinc-200 text-zinc-800"
               } border rounded font-sans text-xs flex flex-col gap-3`}>
               {room.messages?.length === 0 ? (
                 <div className={`flex-grow flex items-center justify-center text-center p-4 transition-all duration-[2000ms] ${theatreMode ? "text-zinc-500" : "text-zinc-400"

@@ -179,9 +179,13 @@ const registerRoomSockets = (io, socket) => {
         async ({
             roomId,
             youtubeVideoId
-        }) => {
+        }, callback) => {
 
             if (!/^[a-zA-Z0-9_-]{11}$/.test(youtubeVideoId || "")) {
+                callback?.({
+                    success: false,
+                    message: "Invalid YouTube video URL.",
+                });
                 socket.emit("YOUTUBE_VIDEO_ERROR", {
                     message: "Invalid YouTube video URL.",
                 });
@@ -199,7 +203,17 @@ const registerRoomSockets = (io, socket) => {
                     "ROOM_UPDATED",
                     updatedRoom
                 );
+                callback?.({
+                    success: true,
+                    room: updatedRoom,
+                });
+                return;
             }
+
+            callback?.({
+                success: false,
+                message: "Room not found.",
+            });
         }
     );
 
