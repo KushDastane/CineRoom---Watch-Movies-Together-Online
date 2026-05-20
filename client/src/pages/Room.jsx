@@ -70,6 +70,27 @@ const extractYoutubeVideoId = (url) => {
   return null;
 };
 
+const getIceServers = () => {
+  const fallbackIceServers = [
+    {
+      urls: "stun:stun.l.google.com:19302",
+    },
+  ];
+
+  try {
+    const configuredIceServers = import.meta.env.VITE_ICE_SERVERS;
+    if (!configuredIceServers) return fallbackIceServers;
+
+    const parsedIceServers = JSON.parse(configuredIceServers);
+    return Array.isArray(parsedIceServers) && parsedIceServers.length > 0
+      ? parsedIceServers
+      : fallbackIceServers;
+  } catch (error) {
+    console.error("Invalid VITE_ICE_SERVERS config", error);
+    return fallbackIceServers;
+  }
+};
+
 const ParticipantVideo = ({ stream, isMuted = false }) => {
   const videoRef = useRef(null);
 
@@ -511,11 +532,7 @@ const Room = () => {
 
   const createPeerConnection = (targetSocket) => {
     const pc = new RTCPeerConnection({
-      iceServers: [
-        {
-          urls: "stun:stun.l.google.com:19302"
-        }
-      ]
+      iceServers: getIceServers(),
     });
     peerConnections.current[targetSocket] = pc;
 
@@ -987,7 +1004,7 @@ const Room = () => {
             <div className={`w-full h-full flex items-center justify-center transition-all ${projectorOff ? "projector-shutdown-active" : ""
               }`}>
               {room.youtubeVideoId && /^[a-zA-Z0-9_-]{11}$/.test(room.youtubeVideoId) ? (
-                <div className="w-full h-full">
+                <div className={`w-full h-full ${!isHost ? "pointer-events-none" : ""}`}>
                   <YouTube
                     videoId={room.youtubeVideoId}
                     onReady={handleYoutubeReady}
