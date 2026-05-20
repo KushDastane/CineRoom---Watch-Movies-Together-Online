@@ -10,14 +10,26 @@ const Room = () => {
   const isRemoteAction = useRef(false);
   const [room, setRoom] = useState(null);
   const username = sessionStorage.getItem("username");
+  const localStream = useRef(null);
+  const peerConnection = useRef(null);
+  const [isMuted, setIsMuted] = useState(false);
   const currentUser =
     room?.users.find(
       (user) => user.username === username
     );
-
+  const [message, setMessage] = useState("");
   const isHost = currentUser?.isHost;
 
   const [loading, setLoading] = useState(true);
+
+  const toggleMute = () => {
+    const audioTrack = localStream.current?.getAudioTracks()[0];
+
+    if (!audioTrack) return;
+
+    audioTrack.enabled = !audioTrack.enabled;
+    setIsMuted(!audioTrack.enabled);
+  };
 
   useEffect(() => {
     const fetchRoom = async () => {
@@ -38,6 +50,113 @@ const Room = () => {
 
   }, [roomId]);
 
+  const initializeVoice = async () => {
+    try {
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+
+      localStream.current = stream;
+      console.log(
+        "Microphone connected",
+        stream
+      );
+    } catch (error) {
+      console.error(
+        "Mic access denied",
+        error
+      );
+    }
+  };
+
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: "stun:stun.l.google.com:19302"
+        }
+      ]
+    });
+    peerConnection.current = pc;
+
+    localStream.current?.getTracks().forEach((track) => {
+      pc.addTrack(track, localStream.current);
+    });
+
+    pc.ontrack = (event) => {
+      console.log("Remote stream recieved");
+
+      const remoteAudio = new Audio();
+
+      remoteAudio.srcObject = event.streams[0];
+      remoteAudio.play();
+    }
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ICE_CANDIDATE",
+          {
+            roomId,
+            candidate:
+              event.candidate,
+          }
+        )
+      }
+    }
+
+    return pc;
+  }
+
+  const startWebRTC = async () => {
+
+    const pc =
+      createPeerConnection();
+
+    const offer =
+      await pc.createOffer();
+
+    await pc.setLocalDescription(
+      offer
+    );
+
+    socket.emit("WEBRTC_OFFER", {
+
+      roomId,
+
+      offer,
+    });
+  };
+
+  const sendMessage = () => {
+
+    if (!message.trim()) return;
+
+    socket.emit(
+      "SEND_MESSAGE",
+
+      {
+        roomId,
+
+        message: {
+
+          id: Date.now(),
+
+          username,
+
+          text: message,
+
+          createdAt:
+            Date.now(),
+        },
+      }
+    );
+
+    setMessage("");
+  };
+
+
   useEffect(() => {
     const username = sessionStorage.getItem("username");
 
@@ -49,6 +168,14 @@ const Room = () => {
       roomId,
       username
     });
+    const setupVoice = async () => {
+
+      await initializeVoice();
+
+      await startWebRTC();
+    };
+
+    setupVoice();
 
     socket.on("ROOM_UPDATED", (updatedRoom) => {
       console.log("Realtime room update:", updatedRoom);
@@ -73,11 +200,57 @@ const Room = () => {
       }
     });
 
+    socket.on("WEBRTC_OFFER",
+      async (offer) => {
+        const pc = createPeerConnection();
+
+        await pc.setRemoteDescription(
+          new RTCSessionDescription(offer)
+        );
+
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        socket.emit(
+          "WEBRTC_ANSWER",
+          {
+            roomId,
+            answer,
+          }
+        );
+      }
+    );
+
+    socket.on("WEBRTC_ANSWER",
+      async (answer) => {
+        await peerConnection.current?.setRemoteDescription(
+          new RTCSessionDescription(answer)
+        );
+        console.log("WEBRTC Connected");
+      }
+    );
+
+    socket.on(
+      "ICE_CANDIDATE",
+      async (candidate) => {
+        try {
+          await peerConnection.current?.addIceCandidate(
+            new RTCIceCandidate(candidate)
+          );
+          console.log("ICE Candidate added");
+        } catch (error) {
+          console.error("ICE error", error);
+        }
+      }
+    )
+
     return () => {
       socket.off("ROOM_UPDATED");
       socket.off("SEEK_VIDEO");
       socket.off("PLAY_VIDEO");
       socket.off("PAUSE_VIDEO");
+      socket.off("WEBRTC_OFFER");
+      socket.off("WEBRTC_ANSWER");
+      socket.off("ICE_CANDIDATE");
     };
   }, [roomId]);
 
@@ -154,6 +327,10 @@ const Room = () => {
     }
   }
 
+
+
+
+
   return (
     <div className="p-10">
       <h1 className="text-4xl font-bold mb-6">
@@ -198,6 +375,22 @@ const Room = () => {
 
       </div>
 
+      <button
+        onClick={toggleMute}
+        className="
+    bg-black
+    text-white
+    px-4
+    py-2
+    rounded-lg
+    mb-4
+  "
+      >
+        {isMuted
+          ? "Unmute Mic"
+          : "Mute Mic"}
+      </button>
+
       <div className="mb-6">
         <h3 className="text-xl font-semibold mb-2">
           Users
@@ -215,6 +408,76 @@ const Room = () => {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="mt-10">
+
+        <h3 className="text-2xl font-bold mb-4">
+          Chat
+        </h3>
+
+        <div
+          className="
+      border
+      rounded-lg
+      p-4
+      h-64
+      overflow-y-auto
+      mb-4
+    "
+        >
+
+          {room.messages?.map((msg) => (
+
+            <div
+              key={msg.id}
+              className="mb-3"
+            >
+
+              <span className="font-bold">
+                {msg.username}
+              </span>
+
+              : {msg.text}
+
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-2">
+
+          <input
+            type="text"
+            value={message}
+            onChange={(e) =>
+              setMessage(e.target.value)
+            }
+
+            placeholder="Type message..."
+
+            className="
+        border
+        p-3
+        rounded-lg
+        flex-1
+      "
+          />
+
+          <button
+            onClick={sendMessage}
+
+            className="
+        bg-blue-500
+        text-white
+        px-4
+        rounded-lg
+      "
+          >
+            Send
+          </button>
+
+        </div>
+
       </div>
     </div>
   );

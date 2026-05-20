@@ -6,6 +6,7 @@ const createRoom = () => {
     const room = {
         roomId,
         users: [],
+        messages: [],
         createdAt: Date.now(),
         videoUrl: null,
         playbackState: {
@@ -68,13 +69,25 @@ const removeUserFromRoom = (roomId, userId) => {
     return room;
 }
 
-const setRoomVideo = (roomId, videoUrl)=>{
+const setRoomVideo = (roomId, videoUrl) => {
     const room = rooms.get(roomId);
-    if(!room){
+    if (!room) {
         return null;
     }
     room.videoUrl = videoUrl;
     return room;
 };
 
-module.exports = { createRoom, getRoom, addUserToRoom, removeUserFromRoom,setRoomVideo };
+const addMessageToRoom = (
+    roomId,
+    message,
+)=>{
+    const room = rooms.get(roomId);
+    if(!room){
+        return null;
+    }
+    room.messages.push(message);
+    return room;
+}
+
+module.exports = { createRoom, getRoom, addUserToRoom, removeUserFromRoom, setRoomVideo, addMessageToRoom };

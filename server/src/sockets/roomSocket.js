@@ -50,6 +50,39 @@ const registerRoomSockets = (io, socket) => {
         }
     );
 
+    socket.on(
+        "WEBRTC_OFFER",
+        ({ roomId, offer }) => {
+            socket.to(roomId).emit("WEBRTC_OFFER", offer);
+        }
+    );
+
+    socket.on(
+        "WEBRTC_ANSWER",
+        ({ roomId, answer }) => {
+            socket.to(roomId).emit("WEBRTC_ANSWER", answer);
+        }
+    );
+
+    socket.on(
+        "ICE_CANDIDATE",
+        ({ roomId, candidate }) => {
+            socket.to(roomId).emit("ICE_CANDIDATE", candidate);
+        }
+    )
+
+    socket.on(
+        "SEND_MESSAGE",
+        ({roomId, message})=>{
+            const updatedRoom
+                =roomService.addMessageToRoom(
+                    roomId,
+                    message
+                );
+            io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+        }
+    )
+
     socket.on("disconnect", () => {
         console.log("Disconnected:", socket.id);
 
@@ -68,4 +101,16 @@ const registerRoomSockets = (io, socket) => {
 
 
 }
+
+const startWebRTC = async () => {
+    const pc = createPeerConnection();
+    const offer = await pc.createOffer();
+
+    await pc.setLocalDescription(offer);
+    socket.emit("WEBRTC_OFFER", {
+        roomId,
+        offer,
+    })
+}
+
 module.exports = registerRoomSockets;
