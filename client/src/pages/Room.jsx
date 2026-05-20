@@ -34,6 +34,32 @@ const getStoredUserId = () => {
   return userId;
 };
 
+const extractYoutubeVideoId = (url) => {
+  try {
+    const parsedUrl = new URL(url.trim());
+    const hostname = parsedUrl.hostname.replace(/^www\./, "");
+
+    if (hostname === "youtu.be") {
+      return parsedUrl.pathname.split("/").filter(Boolean)[0] || null;
+    }
+
+    if (hostname === "youtube.com" || hostname === "m.youtube.com" || hostname === "music.youtube.com") {
+      if (parsedUrl.pathname === "/watch") {
+        return parsedUrl.searchParams.get("v");
+      }
+
+      const parts = parsedUrl.pathname.split("/").filter(Boolean);
+      if (["embed", "shorts", "live"].includes(parts[0])) {
+        return parts[1] || null;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+};
+
 const ParticipantVideo = ({ stream, isMuted = false }) => {
   const videoRef = useRef(null);
 
@@ -191,6 +217,7 @@ const Room = () => {
   }, [loading]);
 
   const handleLeaveRoom = () => {
+    socket.emit("LEAVE_ROOM");
     setProjectorOff(true);
     setTheatreMode(false);
     setTimeout(() => {
@@ -210,14 +237,11 @@ const Room = () => {
   };
 
   const handleSetYoutubeVideo = () => {
-    const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/;
-    const match = youtubeUrl.match(regex);
+    const youtubeVideoId = extractYoutubeVideoId(youtubeUrl);
 
-    if (!match) {
+    if (!youtubeVideoId) {
       return alert("Invalid YouTube URL");
     }
-
-    const youtubeVideoId = match[1];
 
     socket.emit("SET_YOUTUBE_VIDEO", {
       roomId,
@@ -228,6 +252,20 @@ const Room = () => {
 
   const handleYoutubeReady = (event) => {
     youtubePlayerRef.current = event.target;
+    const playbackState = roomRef.current?.playbackState;
+
+    if (!playbackState) return;
+
+    const elapsedSeconds = playbackState.isPlaying
+      ? Math.max(0, (Date.now() - playbackState.updatedAt) / 1000)
+      : 0;
+    const targetTime = (playbackState.currentTime || 0) + elapsedSeconds;
+
+    event.target.seekTo(targetTime, true);
+
+    if (playbackState.isPlaying) {
+      event.target.playVideo();
+    }
   };
 
   const handleYoutubeStateChange = (event) => {
@@ -249,14 +287,6 @@ const Room = () => {
         currentTime,
       });
     }
-  };
-
-  const handleYoutubeSeek = () => {
-    if (!youtubePlayerRef.current) return;
-    socket.emit("SEEK_VIDEO", {
-      roomId,
-      currentTime: youtubePlayerRef.current.getCurrentTime(),
-    });
   };
 
   const toggleMute = () => {
@@ -537,6 +567,11 @@ const Room = () => {
           });
         }
       });
+      setRemoteStreams((prev) => (
+        Object.fromEntries(
+          Object.entries(prev).filter(([id]) => activeSocketIds.includes(id))
+        )
+      ));
 
       // Establish mesh connections: lexicographically larger socket ID initiates WebRTC offer
       updatedRoom.users.forEach((user) => {
@@ -840,11 +875,20 @@ const Room = () => {
             <div className={`w-full h-full flex items-center justify-center transition-all ${projectorOff ? "projector-shutdown-active" : ""
               }`}>
               {room.youtubeVideoId ? (
-                <div className={`w-full h-full ${!isHost ? "pointer-events-none" : ""}`}>
+                <div className="w-full h-full">
                   <YouTube
                     videoId={room.youtubeVideoId}
                     onReady={handleYoutubeReady}
                     onStateChange={handleYoutubeStateChange}
+                    opts={{
+                      width: "100%",
+                      height: "100%",
+                      playerVars: {
+                        autoplay: 0,
+                        modestbranding: 1,
+                        rel: 0,
+                      },
+                    }}
                     className="w-full h-full"
                     iframeClassName="w-full h-full rounded-lg"
                   />

@@ -38,6 +38,7 @@ const roomSchema = new mongoose.Schema(
         },
         createdAt: { type: Number, default: Date.now },
         lastActiveAt: { type: Date, default: Date.now, expires: 86400 },
+        emptySince: { type: Date, default: null, expires: 300 },
     },
     {
         versionKey: false,

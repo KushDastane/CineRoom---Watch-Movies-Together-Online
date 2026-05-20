@@ -31,6 +31,7 @@ const createRoom = async () => {
             updatedAt: Date.now(),
         },
         lastActiveAt: new Date(),
+        emptySince: null,
     });
 
     return toClient(room);
@@ -47,6 +48,9 @@ const setYoutubeVideo = async (roomId, youtubeVideoId) => {
 
     room.youtubeVideoId = youtubeVideoId;
     room.videoUrl = null;
+    room.playbackState.isPlaying = false;
+    room.playbackState.currentTime = 0;
+    room.playbackState.updatedAt = Date.now();
     touchRoom(room);
     await room.save();
 
@@ -89,22 +93,29 @@ const addUserToRoom = async (roomId, username, socketId, userId) => {
         room.users[0].isHost = true;
     }
 
+    room.emptySince = null;
     touchRoom(room);
     await room.save();
 
     return { room: toClient(room), user };
 };
 
-const removeUserFromRoom = async (roomId, socketId) => {
+const removeUserFromRoom = async (roomId, socketId, options = {}) => {
     const room = await Room.findOne({ roomId });
     if (!room) return null;
 
     room.users = room.users.filter((user) => user.socketId !== socketId);
 
+    if (room.users.length === 0 && options.deleteIfEmpty) {
+        await Room.deleteOne({ roomId });
+        return null;
+    }
+
     if (room.users.length > 0 && !room.users.some((user) => user.isHost)) {
         room.users[0].isHost = true;
     }
 
+    room.emptySince = room.users.length === 0 ? new Date() : null;
     touchRoom(room);
     await room.save();
 
@@ -117,6 +128,9 @@ const setRoomVideo = async (roomId, videoUrl) => {
 
     room.videoUrl = videoUrl;
     room.youtubeVideoId = null;
+    room.playbackState.isPlaying = false;
+    room.playbackState.currentTime = 0;
+    room.playbackState.updatedAt = Date.now();
     touchRoom(room);
     await room.save();
 

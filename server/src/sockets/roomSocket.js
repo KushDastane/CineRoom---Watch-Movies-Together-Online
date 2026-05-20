@@ -1,5 +1,27 @@
 const roomService = require("../services/roomService.js");
 
+const removeSocketFromRoom = async (io, socket, options = {}) => {
+    if (!socket.roomId) {
+        return;
+    }
+
+    const roomId = socket.roomId;
+    const updatedRoom =
+        await roomService.removeUserFromRoom(
+            roomId,
+            socket.id,
+            options
+        );
+
+    socket.leave(roomId);
+    socket.roomId = null;
+    socket.socketId = null;
+
+    if (updatedRoom) {
+        io.to(roomId).emit("ROOM_UPDATED", updatedRoom);
+    }
+};
+
 const registerRoomSockets = (io, socket) => {
     socket.on("JOIN_ROOM", async ({ roomId, username, userId }) => {
 
@@ -9,7 +31,7 @@ const registerRoomSockets = (io, socket) => {
             return;
         }
 
-        const { room, user } = result;
+        const { room } = result;
 
         socket.join(roomId);
         socket.roomId = roomId;
@@ -192,22 +214,14 @@ const registerRoomSockets = (io, socket) => {
         io.to(roomId).emit("REACTION_RECEIVED", { emoji, username, id: Date.now() });
     });
 
+    socket.on("LEAVE_ROOM", async () => {
+        await removeSocketFromRoom(io, socket, { deleteIfEmpty: true });
+    });
+
     socket.on("disconnect", async () => {
         console.log("Disconnected:", socket.id);
 
-        if (!socket.roomId) {
-            return;
-        }
-
-        const updatedRoom =
-            await roomService.removeUserFromRoom(
-                socket.roomId,
-                socket.id
-            )
-
-        if (updatedRoom) {
-            io.to(socket.roomId).emit("ROOM_UPDATED", updatedRoom);
-        }
+        await removeSocketFromRoom(io, socket);
     })
 
 
