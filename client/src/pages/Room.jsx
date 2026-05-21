@@ -468,31 +468,56 @@ const Room = () => {
   };
 
   useEffect(() => {
+    let retryTimer = null;
+    let cancelled = false;
+
     const fetchRoom = async () => {
       try {
         setRoomLoadError("");
         const pendingCreateRoomId = sessionStorage.getItem("pendingCreateRoomId");
         if (pendingCreateRoomId === roomId) {
           const createResponse = await api.post("/room/create", { roomId });
+          if (cancelled) return;
           setRoom(createResponse.data.room);
           sessionStorage.removeItem("pendingCreateRoomId");
           return;
         }
 
         const response = await api.get(`/room/${roomId}`);
+        if (cancelled) return;
         setRoom(response.data.room);
       } catch (error) {
-        if (sessionStorage.getItem("pendingCreateRoomId") === roomId) {
+        if (cancelled) return;
+
+        const isPendingCreate = sessionStorage.getItem("pendingCreateRoomId") === roomId;
+        const status = error?.response?.status;
+
+        if (isPendingCreate && status !== 404) {
+          setRoomLoadError("unavailable");
+          retryTimer = setTimeout(fetchRoom, 2500);
+          console.error(error);
+          return;
+        }
+
+        if (isPendingCreate) {
           sessionStorage.removeItem("pendingCreateRoomId");
         }
-        setRoomLoadError(error?.response?.status === 404 ? "not-found" : "unavailable");
+
+        setRoomLoadError(status === 404 ? "not-found" : "unavailable");
         console.error(error);
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
     fetchRoom();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, [roomId]);
 
   const createPlaceholderVideoTrack = () => {
