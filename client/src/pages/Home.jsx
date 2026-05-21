@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import api from "../services/api";
 import { useTransition } from "../context/TransitionContext";
 import { 
@@ -20,90 +20,22 @@ const getStoredUserId = () => {
   return userId;
 };
 
-const ServerWarmupModal = () => (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md px-4">
-    <div className="relative w-full max-w-xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/50">
-      <div className="relative min-h-[360px] px-6 py-7 sm:px-8">
-        <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-indigo-600/20 to-transparent" />
-        <div className="cine-spotlight cine-spotlight-left" />
-        <div className="cine-spotlight cine-spotlight-right" />
-        <div className="relative z-10 flex flex-col items-center text-center">
-          <div className="mb-5 flex h-36 w-full items-end justify-center gap-5">
-            <div className="cine-actor cine-actor-left">
-              <div className="cine-actor-head">
-                <span className="cine-actor-hair" />
-                <span className="cine-actor-eye cine-actor-eye-left" />
-                <span className="cine-actor-eye cine-actor-eye-right" />
-                <span className="cine-actor-smile" />
-              </div>
-              <div className="cine-actor-body">
-                <span className="cine-bowtie" />
-              </div>
-            </div>
-            <div className="cine-snack-stage">
-              <div className="cine-popcorn">
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-              <div className="cine-drink">
-                <span />
-              </div>
-            </div>
-            <div className="cine-actor cine-actor-right">
-              <div className="cine-actor-head">
-                <span className="cine-actor-hair" />
-                <span className="cine-actor-eye cine-actor-eye-left" />
-                <span className="cine-actor-eye cine-actor-eye-right" />
-                <span className="cine-actor-smile" />
-              </div>
-              <div className="cine-actor-body">
-                <span className="cine-bowtie" />
-              </div>
-            </div>
-          </div>
-          <span className="mb-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-300">
-            Waking the server
-          </span>
-          <h1 className="text-2xl font-black tracking-normal text-white sm:text-3xl">
-            Grab your popcorn and drinks
-          </h1>
-          <p className="mt-3 max-w-md text-sm leading-6 text-zinc-400">
-            The room service is getting ready.
-          </p>
-          <div className="mt-6 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-            <span className="cine-dot" />
-            <span>Coming up</span>
-            <span className="cine-dot cine-dot-delay" />
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-);
+const generateRoomId = () => Math.random().toString(36).substring(2, 8);
 
 const Home = () => {
   const [username, setUsername] = useState(sessionStorage.getItem("username") || "");
   const [roomCode, setRoomCode] = useState("");
   const [formError, setFormError] = useState("");
   const [isRequestingRoom, setIsRequestingRoom] = useState(false);
-  const [showServerWarmup, setShowServerWarmup] = useState(false);
+  const hasStartedServerWakeRef = useRef(false);
   const { navigateWithTransition } = useTransition();
 
-  const runWithServerWarmup = async (action) => {
-    setIsRequestingRoom(true);
-    const timer = setTimeout(() => {
-      setShowServerWarmup(true);
-    }, 1200);
-
-    try {
-      return await action();
-    } finally {
-      clearTimeout(timer);
-      setIsRequestingRoom(false);
-      setShowServerWarmup(false);
-    }
+  const wakeServerQuietly = () => {
+    if (hasStartedServerWakeRef.current) return;
+    hasStartedServerWakeRef.current = true;
+    api.get("/").catch(() => {
+      hasStartedServerWakeRef.current = false;
+    });
   };
 
   const validateUsername = () => {
@@ -119,19 +51,12 @@ const Home = () => {
   const handleCreateRoom = async () => {
     setFormError("");
     if (!validateUsername()) return;
-    try {
-      const roomId = await runWithServerWarmup(async () => {
-          const createResponse = await api.post("/room/create");
-          return createResponse.data.room.roomId;
-      });
-      await navigateWithTransition(`/room/${roomId}`);
-    } catch (error) {
-      console.error("Error creating room:", error);
-      setFormError("Could not create room. Try again.");
-    }
+    const roomId = generateRoomId();
+    sessionStorage.setItem("pendingCreateRoomId", roomId);
+    navigateWithTransition(`/room/${roomId}`);
   };
 
-  const handleJoinRoom = async (code) => {
+  const handleJoinRoom = (code) => {
     setFormError("");
     if (!validateUsername()) return;
     const targetCode = code || roomCode;
@@ -141,20 +66,11 @@ const Home = () => {
     }
 
     const trimmedCode = targetCode.trim();
-
-    try {
-      await runWithServerWarmup(() => api.get(`/room/${trimmedCode}`));
-      navigateWithTransition(`/room/${trimmedCode}`);
-    } catch (error) {
-      console.error("Error joining room:", error);
-      setFormError("Room not found.");
-    }
+    navigateWithTransition(`/room/${trimmedCode}`);
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 text-zinc-900 font-sans selection:bg-brand-blue selection:text-white">
-      {showServerWarmup && <ServerWarmupModal />}
-
       {/* Top Header */}
       <header className="border-b border-zinc-200/60 bg-white/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -198,6 +114,9 @@ const Home = () => {
                   onChange={(e) => {
                     setUsername(e.target.value);
                     setFormError("");
+                    if (e.target.value.trim()) {
+                      wakeServerQuietly();
+                    }
                   }}
                   className="w-full min-w-0 h-12 px-4 border border-zinc-200 bg-zinc-50/40 rounded-lg font-sans text-sm md:text-base text-zinc-850 placeholder:text-zinc-400 focus:outline-none focus:border-zinc-400 focus:bg-white transition-all duration-150"
                 />

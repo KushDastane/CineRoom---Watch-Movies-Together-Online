@@ -115,7 +115,7 @@ const ParticipantVideo = ({ stream, isMuted = false }) => {
 };
 
 const RoomWarmupModal = () => (
-  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-md px-4">
+  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-zinc-950/45 backdrop-blur-sm px-4">
     <div className="relative w-full max-w-xl overflow-hidden rounded-xl border border-zinc-700 bg-zinc-950 text-zinc-100 shadow-2xl shadow-black/50">
       <div className="relative min-h-[360px] px-6 py-7 sm:px-8">
         <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-indigo-600/20 to-transparent" />
@@ -161,9 +161,7 @@ const RoomWarmupModal = () => (
             </div>
           </div>
 
-          <span className="mb-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 font-mono text-[10px] font-bold uppercase tracking-widest text-blue-300">
-            Warming up the room
-          </span>
+          
           <h1 className="text-2xl font-black tracking-normal text-white sm:text-3xl">
             Grab your popcorn and drinks
           </h1>
@@ -173,12 +171,49 @@ const RoomWarmupModal = () => (
 
           <div className="mt-6 flex items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-500">
             <span className="cine-dot" />
-            <span>Coming up</span>
+            <span>Loading...</span>
             <span className="cine-dot cine-dot-delay" />
           </div>
         </div>
       </div>
     </div>
+  </div>
+);
+
+const RoomLoadingShell = ({ showModal = true }) => (
+  <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-brand-blue selection:text-white">
+    <header className="border-b border-white/10 bg-zinc-900/55 backdrop-blur-md px-4 md:px-6 py-3 md:py-4 flex items-center justify-between sticky top-0 z-50">
+      <span className="font-mono text-base md:text-lg font-bold tracking-widest text-zinc-100 flex items-center">
+        CINEROOM
+        <span className="w-1 md:w-1.5 h-1 md:h-1.5 rounded-full bg-blue-700 inline-block ml-1"></span>
+      </span>
+      <div className="h-8 w-32 rounded border border-white/10 bg-white/5 backdrop-blur" />
+    </header>
+
+    <main className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 p-3 sm:p-4 lg:p-6 max-w-7xl mx-auto w-full opacity-70 blur-[1px] pointer-events-none">
+      <section className="lg:col-span-8 flex flex-col gap-3 lg:gap-5">
+        <div className="aspect-video rounded-xl border border-white/10 bg-white/5 backdrop-blur-xl shadow-2xl shadow-black/20 flex items-center justify-center">
+          <div className="h-20 w-20 rounded-full border border-white/10 bg-white/5 animate-active-pulse" />
+        </div>
+        <div className="h-16 rounded-md border border-white/10 bg-white/5 backdrop-blur-xl" />
+      </section>
+      <section className="lg:col-span-4 flex flex-col gap-4 lg:gap-5">
+        <div className="rounded-lg border border-white/10 bg-white/5 backdrop-blur-xl p-4">
+          <div className="mx-auto aspect-[4/3] max-w-[190px] rounded-lg border border-blue-500/30 bg-white/5" />
+          <div className="mt-4 flex justify-center gap-4">
+            <div className="h-12 w-12 rounded-full border border-red-500/30 bg-red-500/10" />
+            <div className="h-12 w-12 rounded-full border border-red-500/30 bg-red-500/10" />
+          </div>
+        </div>
+        <div className="h-[420px] rounded-lg border border-white/10 bg-white/5 backdrop-blur-xl p-4">
+          <div className="h-8 border-b border-white/10" />
+          <div className="mt-4 h-52 rounded border border-white/10 bg-black/10" />
+          <div className="mt-4 h-12 rounded border border-white/10 bg-white/5" />
+        </div>
+      </section>
+    </main>
+
+    {showModal && <RoomWarmupModal />}
   </div>
 );
 
@@ -216,6 +251,7 @@ const Room = () => {
   isHostRef.current = isHost;
 
   const [loading, setLoading] = useState(true);
+  const [roomLoadError, setRoomLoadError] = useState("");
   const [showRoomWarmup, setShowRoomWarmup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showMediaManager, setShowMediaManager] = useState(false);
@@ -434,9 +470,22 @@ const Room = () => {
   useEffect(() => {
     const fetchRoom = async () => {
       try {
+        setRoomLoadError("");
+        const pendingCreateRoomId = sessionStorage.getItem("pendingCreateRoomId");
+        if (pendingCreateRoomId === roomId) {
+          const createResponse = await api.post("/room/create", { roomId });
+          setRoom(createResponse.data.room);
+          sessionStorage.removeItem("pendingCreateRoomId");
+          return;
+        }
+
         const response = await api.get(`/room/${roomId}`);
         setRoom(response.data.room);
       } catch (error) {
+        if (sessionStorage.getItem("pendingCreateRoomId") === roomId) {
+          sessionStorage.removeItem("pendingCreateRoomId");
+        }
+        setRoomLoadError(error?.response?.status === 404 ? "not-found" : "unavailable");
         console.error(error);
       } finally {
         setLoading(false);
@@ -836,11 +885,11 @@ const Room = () => {
   }, [roomId]);
 
   if (loading) {
-    return showRoomWarmup ? (
-      <RoomWarmupModal />
-    ) : (
-      <div className="min-h-screen bg-zinc-950" />
-    );
+    return <RoomLoadingShell showModal={showRoomWarmup} />;
+  }
+
+  if (roomLoadError === "unavailable") {
+    return <RoomLoadingShell showModal />;
   }
 
   if (!room) {

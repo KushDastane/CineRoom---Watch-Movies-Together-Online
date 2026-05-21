@@ -11,8 +11,13 @@ const toClient = (room) => {
 
 const generateRoomId = () => Math.random().toString(36).substring(2, 8);
 
-const createRoom = async () => {
-    let roomId = generateRoomId();
+const createRoom = async (requestedRoomId = null) => {
+    let roomId = requestedRoomId || generateRoomId();
+
+    if (requestedRoomId && await Room.exists({ roomId })) {
+        const existingRoom = await Room.findOne({ roomId });
+        return toClient(existingRoom);
+    }
 
     while (await Room.exists({ roomId })) {
         roomId = generateRoomId();

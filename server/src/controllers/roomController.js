@@ -1,7 +1,7 @@
 const roomService = require("../services/roomService.js");
 
 const createRoom = async (req, res) => {
-    const room = await roomService.createRoom();
+    const room = await roomService.createRoom(req.body?.roomId);
 
     res.json({
         success: true,
