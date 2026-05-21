@@ -492,15 +492,11 @@ const Room = () => {
         const isPendingCreate = sessionStorage.getItem("pendingCreateRoomId") === roomId;
         const status = error?.response?.status;
 
-        if (isPendingCreate && status !== 404) {
+        if (isPendingCreate) {
           setRoomLoadError("unavailable");
           retryTimer = setTimeout(fetchRoom, 2500);
           console.error(error);
           return;
-        }
-
-        if (isPendingCreate) {
-          sessionStorage.removeItem("pendingCreateRoomId");
         }
 
         setRoomLoadError(status === 404 ? "not-found" : "unavailable");
