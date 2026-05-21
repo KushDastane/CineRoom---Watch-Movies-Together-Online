@@ -22,14 +22,6 @@ const getStoredUserId = () => {
 
 const generateRoomId = () => Math.random().toString(36).substring(2, 8);
 
-const HomePopcornMark = () => (
-  <span className="home-popcorn-mark" aria-hidden="true">
-    <span />
-    <span />
-    <span />
-  </span>
-);
-
 const Home = () => {
   const [username, setUsername] = useState(sessionStorage.getItem("username") || "");
   const [roomCode, setRoomCode] = useState("");
@@ -82,7 +74,6 @@ const Home = () => {
       {/* Top Header */}
       <header className="border-b border-zinc-200/60 bg-white/80 backdrop-blur-md sticky top-0 z-50 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <HomePopcornMark />
           <span className="font-mono text-base font-bold tracking-widest text-zinc-900 flex items-center">
             CINEROOM
             <span className="w-1.5 h-1.5 rounded-full bg-blue-800 inline-block ml-1"></span>

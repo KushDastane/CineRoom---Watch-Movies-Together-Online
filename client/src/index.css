@@ -231,41 +231,6 @@
 .cine-popcorn span:nth-child(3) { left: 29px; }
 .cine-popcorn span:nth-child(4) { right: -5px; top: -22px; }
 
-.home-popcorn-mark {
-  position: relative;
-  display: inline-block;
-  width: 20px;
-  height: 23px;
-  border: 2px solid #18181b;
-  border-radius: 4px 4px 6px 6px;
-  background: repeating-linear-gradient(90deg, #b91c1c 0 4px, #fff7ed 4px 8px);
-  box-shadow: 0 1px 0 rgba(24, 24, 27, 0.08);
-  flex: 0 0 auto;
-}
-
-.home-popcorn-mark span {
-  position: absolute;
-  top: -7px;
-  width: 9px;
-  height: 9px;
-  border: 2px solid #18181b;
-  border-radius: 999px;
-  background: #fde68a;
-}
-
-.home-popcorn-mark span:nth-child(1) {
-  left: -2px;
-}
-
-.home-popcorn-mark span:nth-child(2) {
-  left: 5px;
-  top: -11px;
-}
-
-.home-popcorn-mark span:nth-child(3) {
-  right: -2px;
-}
-
 .cine-drink {
   position: absolute;
   right: 4px;
