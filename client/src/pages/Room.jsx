@@ -21,7 +21,10 @@ import {
   FiMessageSquare,
   FiChevronDown,
   FiSettings,
-  FiTv
+  FiTv,
+  FiMaximize2,
+  FiMinimize2,
+  FiX
 } from "react-icons/fi";
 import { FaCrown } from "react-icons/fa";
 
@@ -230,8 +233,13 @@ const Room = () => {
   const [theatreMode, setTheatreMode] = useState(false);
   const [projectorOff, setProjectorOff] = useState(false);
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [callFocusMode, setCallFocusMode] = useState(false);
+  const [showCallPreview, setShowCallPreview] = useState(true);
   const chatListRef = useRef(null);
+  const chatPanelRef = useRef(null);
   const chatBottomRef = useRef(null);
+  const previousMessageCountRef = useRef(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -250,6 +258,32 @@ const Room = () => {
       behavior: "smooth",
     });
   }, [room?.messages]);
+
+  useEffect(() => {
+    const messageCount = room?.messages?.length || 0;
+
+    if (messageCount > previousMessageCountRef.current) {
+      const lastMessage = room?.messages?.[messageCount - 1];
+      const chatPanel = chatPanelRef.current;
+      const chatVisible = chatPanel
+        ? chatPanel.getBoundingClientRect().top < window.innerHeight && chatPanel.getBoundingClientRect().bottom > 0
+        : false;
+
+      if (lastMessage?.username !== username && !chatVisible) {
+        setUnreadChatCount((count) => count + (messageCount - previousMessageCountRef.current));
+      }
+    }
+
+    previousMessageCountRef.current = messageCount;
+  }, [room?.messages, username]);
+
+  const scrollToChat = () => {
+    setUnreadChatCount(0);
+    chatPanelRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  };
 
   useEffect(() => {
     if (!loading) {
@@ -729,7 +763,14 @@ const Room = () => {
     socket.on("ICE_CANDIDATE", async ({ candidate, senderSocketId }) => {
       try {
         const pc = peerConnections.current[senderSocketId];
-        if (!pc) return;
+        if (!pc) {
+          if (!pendingCandidates.current[senderSocketId]) {
+            pendingCandidates.current[senderSocketId] = [];
+          }
+          pendingCandidates.current[senderSocketId].push(candidate);
+          console.log("ICE Candidate queued before peer connection");
+          return;
+        }
 
         if (pc.remoteDescription && pc.remoteDescription.type) {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
@@ -919,6 +960,97 @@ const Room = () => {
         </div>
       )}
     </>
+  );
+
+  const renderParticipantTile = (user, size = "normal") => {
+    const isPeerHost = user.isHost;
+    const isSelf = user.username === username;
+    const userStream = isSelf ? localStream.current : remoteStreams[user.socketId];
+    const hasCamera = user.isCameraOn;
+    const avatarSize = size === "large" ? "w-16 h-16 text-2xl" : "w-9 h-9 text-sm";
+
+    return (
+      <div
+        key={user.socketId}
+        className={`relative aspect-[4/3] w-full rounded-lg overflow-hidden border transition-all duration-300 ${
+          isSelf
+            ? "border-blue-500/40 bg-zinc-950"
+            : "border-zinc-800/80 bg-zinc-950"
+        }`}
+      >
+        {userStream ? (
+          <ParticipantVideo stream={userStream} isMuted={isSelf} />
+        ) : (
+          <div className="w-full h-full bg-zinc-950 flex items-center justify-center">
+            <span className="text-[10px] font-mono text-zinc-500">CONNECTING...</span>
+          </div>
+        )}
+
+        {!hasCamera && (
+          <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center select-none z-10">
+            <div className={`${avatarSize} rounded-full bg-gradient-to-tr ${
+              isSelf ? "from-blue-600 to-indigo-500" : "from-zinc-700 to-zinc-600"
+            } flex items-center justify-center text-white font-bold shadow-md`}>
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+          </div>
+        )}
+
+        <div className="absolute top-1.5 left-1.5 z-20 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[8px] font-mono text-white flex items-center gap-1 select-none">
+          <span className="truncate max-w-[70px]">{user.username}</span>
+          {isSelf && <span className="text-blue-400 font-bold">(YOU)</span>}
+          {isPeerHost && <FaCrown className="w-2.5 h-2.5 text-amber-400" />}
+        </div>
+
+        <div className="absolute bottom-1.5 right-1.5 z-20 bg-black/60 backdrop-blur p-1 rounded-full text-white select-none">
+          {user.isMuted ? (
+            <FiMicOff className="w-2.5 h-2.5 text-red-500" />
+          ) : (
+            <FiMic className="w-2.5 h-2.5 text-emerald-400" />
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMiniWatchPreview = () => (
+    <div className="absolute bottom-28 right-4 z-30 w-[52vw] max-w-xs min-w-[170px] aspect-video overflow-hidden rounded-lg border border-white/10 bg-black shadow-2xl sm:bottom-5">
+      <button
+        onClick={() => setShowCallPreview(false)}
+        className="absolute right-2 top-2 z-20 rounded-full border border-white/10 bg-black/70 p-1.5 text-zinc-300 backdrop-blur transition-colors hover:text-white cursor-pointer"
+        title="Hide movie preview"
+      >
+        <FiX className="h-3.5 w-3.5" />
+      </button>
+      {room.youtubeVideoId && /^[a-zA-Z0-9_-]{11}$/.test(room.youtubeVideoId) ? (
+        <YouTube
+          videoId={room.youtubeVideoId}
+          opts={{
+            width: "100%",
+            height: "100%",
+            playerVars: {
+              autoplay: 0,
+              controls: 0,
+              modestbranding: 1,
+              rel: 0,
+            },
+          }}
+          className="w-full h-full pointer-events-none"
+          iframeClassName="w-full h-full"
+        />
+      ) : room.videoUrl ? (
+        <video
+          src={room.videoUrl.startsWith("http") ? room.videoUrl : `http://localhost:5000${room.videoUrl}`}
+          className="w-full h-full object-contain"
+          muted
+          playsInline
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-zinc-950 font-mono text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+          No video
+        </div>
+      )}
+    </div>
   );
 
   return (
@@ -1145,7 +1277,7 @@ const Room = () => {
                 {["❤️", "😂", "😮", "👏", "🔥"].map((emoji) => (
                   <button
                     key={emoji}
-                    onClick={() => { sendReaction(emoji); setShowReactionPicker(false); }}
+                    onClick={() => sendReaction(emoji)}
                     className="hover:scale-125 active:scale-90 transition-transform duration-100 p-0.5 text-base cursor-pointer select-none"
                     title={`Send ${emoji}`}
                   >
@@ -1254,66 +1386,30 @@ const Room = () => {
         {/* Right Side: Sidebar containing Voice Chat & Chat logs */}
         <section className="lg:col-span-4 flex flex-col gap-4 lg:gap-5 h-auto lg:h-[calc(100svh-140px)] lg:min-h-0 lg:sticky lg:top-[90px]">
           {/* Peer Voice Stream panel */}
-          <div className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
+          <div className={`relative border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
             } rounded-lg p-4 flex flex-col lg:flex-none shadow-sm`}>
+            <button
+              onClick={() => {
+                setShowCallPreview(true);
+                setCallFocusMode(true);
+              }}
+              className={`absolute right-3 top-3 z-30 rounded border p-2 transition-colors cursor-pointer ${
+                theatreMode
+                  ? "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:text-zinc-100"
+                  : "border-zinc-200 bg-white/80 text-zinc-500 hover:text-zinc-900"
+              }`}
+              title="Focus video call"
+            >
+              <FiMaximize2 className="h-3.5 w-3.5" />
+            </button>
             {/* List of active room peers */}
-            <div className="overflow-visible">
+            <div className="overflow-visible pt-9">
               <div className="grid grid-cols-[repeat(auto-fit,minmax(112px,140px))] justify-center gap-2 w-full">
                 {[
                   ...new Map(
                     room.users.map((user) => [user.socketId, user])
                   ).values()
-                ].map((user) => {
-                  const isPeerHost = user.isHost;
-                  const isSelf = user.username === username;
-                  const userStream = isSelf ? localStream.current : remoteStreams[user.socketId];
-                  const hasCamera = user.isCameraOn;
-
-                  return (
-                    <div
-                      key={user.socketId}
-                      className={`relative aspect-[4/3] w-full rounded-lg overflow-hidden border transition-all duration-300 ${isSelf
-                          ? "border-blue-500/40 bg-zinc-950"
-                          : "border-zinc-800/80 bg-zinc-950"
-                        }`}
-                    >
-                      {/* Video Player */}
-                      {userStream ? (
-                        <ParticipantVideo stream={userStream} isMuted={isSelf} />
-                      ) : (
-                        <div className="w-full h-full bg-zinc-950 flex items-center justify-center">
-                          <span className="text-[10px] font-mono text-zinc-500">CONNECTING...</span>
-                        </div>
-                      )}
-
-                      {/* Camera Off Overlay Avatar */}
-                      {!hasCamera && (
-                        <div className="absolute inset-0 bg-zinc-900 flex flex-col items-center justify-center select-none z-10">
-                          <div className={`w-9 h-9 rounded-full bg-gradient-to-tr ${isSelf ? "from-blue-600 to-indigo-500" : "from-zinc-700 to-zinc-600"
-                            } flex items-center justify-center text-white text-sm font-bold shadow-md`}>
-                            {user.username.charAt(0).toUpperCase()}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Header Badge: Username & Crown */}
-                      <div className="absolute top-1.5 left-1.5 z-20 bg-black/60 backdrop-blur px-1.5 py-0.5 rounded text-[8px] font-mono text-white flex items-center gap-1 select-none">
-                        <span className="truncate max-w-[50px]">{user.username}</span>
-                        {isSelf && <span className="text-blue-400 font-bold">(YOU)</span>}
-                        {isPeerHost && <FaCrown className="w-2.5 h-2.5 text-amber-400" />}
-                      </div>
-
-                      {/* Footer Badge: Mic Status */}
-                      <div className="absolute bottom-1.5 right-1.5 z-20 bg-black/60 backdrop-blur p-1 rounded-full text-white select-none">
-                        {user.isMuted ? (
-                          <FiMicOff className="w-2.5 h-2.5 text-red-500" />
-                        ) : (
-                          <FiMic className="w-2.5 h-2.5 text-emerald-400" />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                ].map((user) => renderParticipantTile(user))}
               </div>
             </div>
 
@@ -1354,7 +1450,7 @@ const Room = () => {
           </div>
 
           {/* Unit conversation chat panel */}
-          <div className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
+          <div ref={chatPanelRef} className={`border transition-all duration-[2000ms] ease-in-out ${theatreMode ? "border-zinc-800 bg-zinc-900/90 backdrop-blur-md shadow-lg shadow-black/30" : "border-zinc-200 bg-white"
             } rounded-lg p-4 flex flex-col min-h-[300px] h-[420px] sm:h-[500px] lg:min-h-0 lg:h-auto lg:flex-1 overflow-hidden shadow-sm`}>
             <div className={`flex items-center gap-2 text-xs font-mono font-bold tracking-wider uppercase border-b transition-all duration-[2000ms] ease-in-out ${theatreMode ? "text-zinc-300 border-zinc-800" : "text-zinc-600 border-zinc-200"
               } pb-2`}>
@@ -1433,6 +1529,73 @@ const Room = () => {
           </div>
         </section>
       </main>
+
+      {unreadChatCount > 0 && !callFocusMode && (
+        <button
+          onClick={scrollToChat}
+          className="fixed bottom-5 right-5 z-[80] flex h-12 w-12 items-center justify-center rounded-full border border-zinc-700 bg-zinc-950 text-white shadow-2xl shadow-black/30 transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+          title="Jump to chat"
+        >
+          <FiMessageSquare className="h-5 w-5" />
+          <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 font-mono text-[10px] font-black text-white ring-2 ring-zinc-950">
+            {unreadChatCount > 9 ? "9+" : unreadChatCount}
+          </span>
+        </button>
+      )}
+
+      {callFocusMode && (
+        <div className="fixed inset-0 z-[90] bg-zinc-950 text-white">
+          <div className="absolute left-4 top-4 z-40 flex items-center gap-2 rounded border border-white/10 bg-black/50 px-3 py-2 font-mono text-[10px] font-bold uppercase tracking-widest text-zinc-300 backdrop-blur">
+            <FiVideo className="h-3.5 w-3.5 text-blue-400" />
+            <span>Video Call</span>
+          </div>
+
+          <button
+            onClick={() => setCallFocusMode(false)}
+            className="absolute right-4 top-4 z-40 rounded border border-white/10 bg-black/50 p-3 text-zinc-300 backdrop-blur transition-colors hover:text-white cursor-pointer"
+            title="Exit call focus"
+          >
+            <FiMinimize2 className="h-4 w-4" />
+          </button>
+
+          <div className="h-full w-full overflow-y-auto p-4 pt-16 pb-64 sm:p-6 sm:pt-20 sm:pb-32">
+            <div className="mx-auto grid max-w-7xl grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {[
+                ...new Map(
+                  room.users.map((user) => [user.socketId, user])
+                ).values()
+              ].map((user) => renderParticipantTile(user, "large"))}
+            </div>
+          </div>
+
+          <div className="absolute bottom-5 left-1/2 z-40 flex -translate-x-1/2 gap-4 rounded-full border border-white/10 bg-black/60 px-5 py-3 backdrop-blur">
+            <button
+              onClick={toggleMute}
+              className={`h-12 w-12 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+                isMuted
+                  ? "border-red-800 bg-red-950/70 text-red-300"
+                  : "border-emerald-800 bg-emerald-950/70 text-emerald-300"
+              }`}
+              title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
+            >
+              {isMuted ? <FiMicOff className="h-5 w-5" /> : <FiMic className="h-5 w-5" />}
+            </button>
+            <button
+              onClick={toggleCamera}
+              className={`h-12 w-12 rounded-full border flex items-center justify-center cursor-pointer transition-all ${
+                !isCameraOn
+                  ? "border-red-800 bg-red-950/70 text-red-300"
+                  : "border-emerald-800 bg-emerald-950/70 text-emerald-300"
+              }`}
+              title={isCameraOn ? "Stop Camera" : "Start Camera"}
+            >
+              {isCameraOn ? <FiVideo className="h-5 w-5" /> : <FiVideoOff className="h-5 w-5" />}
+            </button>
+          </div>
+
+          {showCallPreview && renderMiniWatchPreview()}
+        </div>
+      )}
 
       {/* Render invisible HTML5 audio tags for each remote WebRTC stream */}
       {Object.entries(remoteStreams).map(([socketId, stream]) => (
